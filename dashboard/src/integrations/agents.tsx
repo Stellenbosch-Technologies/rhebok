@@ -39,7 +39,7 @@ const dangerButton =
 
 type Action = "connect" | "disconnect";
 
-export type Outcome = { action: Action; change?: AgentChange; error?: string; status?: number };
+export type Outcome = { action: Action; change?: AgentChange; error?: string; status?: number; unparseable?: boolean };
 
 export type AgentActions = {
   busy: Partial<Record<AgentId, Action>>;
@@ -78,7 +78,9 @@ export function useAgentActions(onChanged: () => void): AgentActions {
     try {
       const r = action === "connect" ? await connectAgent(id, instructions) : await disconnectAgent(id);
       const outcome: Outcome =
-        r.kind === "done" ? { action, change: r.outcome.change } : { action, error: r.error, status: r.status };
+        r.kind === "done"
+          ? { action, change: r.outcome.change }
+          : { action, error: r.error, status: r.status, unparseable: r.unparseable };
       setLast((l) => ({ ...l, [id]: outcome }));
     } catch (e) {
       setLast((l) => ({ ...l, [id]: { action, error: e instanceof Error ? e.message : String(e) } }));
@@ -124,7 +126,7 @@ export function ChangeReport({ outcome, name }: { outcome: Outcome; name: string
     return (
       <div className="rounded-md px-3 py-2 text-sm bg-[#F6E4DC] text-warn flex flex-col gap-1" role="alert" data-testid="agent-error">
         <span>{outcome.error}</span>
-        {outcome.status === 409 && (
+        {outcome.unparseable && (
           <span className="text-xs">Nothing was written: the file is exactly as it was. Fix it by hand, then try again.</span>
         )}
       </div>

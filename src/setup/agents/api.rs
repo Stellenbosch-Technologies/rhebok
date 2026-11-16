@@ -74,6 +74,13 @@ fn error_status(e: &anyhow::Error) -> u16 {
     }
 }
 
+fn error_body(e: &anyhow::Error) -> Value {
+    json!({
+        "error": format!("{e:#}"),
+        "unparseable": e.downcast_ref::<Unparseable>().is_some(),
+    })
+}
+
 fn outcome(
     env: &AgentEnv,
     id: &str,
@@ -81,14 +88,14 @@ fn outcome(
 ) -> (u16, Value) {
     let agent = match super::find(id) {
         Ok(a) => a,
-        Err(e) => return (error_status(&e), json!({ "error": format!("{e:#}") })),
+        Err(e) => return (error_status(&e), error_body(&e)),
     };
     match act(agent.as_ref()) {
         Ok(change) => (
             200,
             json!({ "agent": agent_json(agent.as_ref(), env), "change": change }),
         ),
-        Err(e) => (error_status(&e), json!({ "error": format!("{e:#}") })),
+        Err(e) => (error_status(&e), error_body(&e)),
     }
 }
 

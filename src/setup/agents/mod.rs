@@ -28,6 +28,7 @@ pub struct AgentEnv {
     pub paths: Paths,
     pub claude: ClaudeCli,
     pub version: String,
+    pub desktop_rewrites: fn(&Path) -> bool,
 }
 
 impl AgentEnv {
@@ -57,6 +58,7 @@ impl AgentEnv {
             paths,
             claude: ClaudeCli::from_path(),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            desktop_rewrites: claude_desktop::rewrites_while_running,
         }
     }
 
@@ -70,6 +72,7 @@ impl AgentEnv {
             paths,
             claude: ClaudeCli::at(Path::new("/nonexistent/claude")),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            desktop_rewrites: |_| false,
         };
         if let Some(claude) = env.find_program("claude") {
             env.claude = ClaudeCli::at(&claude);
@@ -230,6 +233,28 @@ pub trait Agent: Send + Sync {
     fn instructions(&self, _env: &AgentEnv) -> Option<bool> {
         None
     }
+    fn blocked(&self, _env: &AgentEnv) -> Option<String> {
+        None
+    }
+    fn blocked_connect(&self, _env: &AgentEnv) -> Option<String> {
+        None
+    }
+    fn blocked_disconnect(&self, _env: &AgentEnv) -> Option<String> {
+        None
+    }
+}
+
+pub fn refuse_uninstall_while_blocked(env: &AgentEnv) -> Result<()> {
+    for agent in all() {
+        if let Some(reason) = agent.blocked_disconnect(env) {
+            return Err(AgentError::Unavailable(format!(
+                "{reason}. Nothing was removed. Quit {}, then run `rhebok uninstall` again from a terminal",
+                agent.display_name()
+            ))
+            .into());
+        }
+    }
+    Ok(())
 }
 
 pub fn all() -> Vec<Box<dyn Agent>> {
@@ -382,6 +407,22 @@ pub fn offer_after_install(
     let mut r = AgentsReport::default();
     for agent in all().into_iter().filter(|a| a.id() != claude_code::ID) {
         let status = agent.status(env);
+        if let Some(reason) = agent.blocked_connect(env) {
+            match &status {
+                Status::Stale(stale) => r.warnings.push(format!(
+                    "{}: {stale}; {reason}. Quit it, then run `rhebok connect {}` from a terminal",
+                    agent.id(),
+                    agent.id()
+                )),
+                Status::NotConnected if !quiet && agent.detect(env).installed => r.lines.push(format!(
+                    "{}: detected, not connected; it is running, so quit it before you run `rhebok connect {}`",
+                    agent.id(),
+                    agent.id()
+                )),
+                _ => {}
+            }
+            continue;
+        }
         let wanted = match &status {
             Status::Connected => {
                 r.lines.push(format!("{}: connected", agent.id()));

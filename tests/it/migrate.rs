@@ -1,4 +1,4 @@
-use rhebok::setup::agents::{codex, cursor::Cursor, AgentEnv};
+use rhebok::setup::agents::{claude_desktop::ClaudeDesktop, codex, cursor::Cursor, AgentEnv};
 use rhebok::setup::claude::ClaudeCli;
 use rhebok::setup::migrate::{migrate, renamed_env_text, Crontab};
 #[cfg(feature = "backup")]
@@ -882,4 +882,73 @@ fn the_schedule_is_rewritten_when_the_binary_it_runs_is_removed_even_without_a_m
     .unwrap();
 
     assert!(read(&stub.join("written")).contains(&fx.paths.bin.display().to_string()));
+}
+
+const DESKTOP_WITH_BR8N: &str = r#"{
+  "mcpServers": {
+    "br8n": { "command": "/old/br8n", "args": ["mcp"] }
+  },
+  "preferences": { "sidebarMode": "epitaxy" }
+}
+"#;
+
+#[test]
+fn a_running_claude_desktop_keeps_its_br8n_entry_through_the_migration() {
+    let fx = fixture();
+    legacy_install(&fx);
+    let mut agents_env = env(&fx);
+    agents_env.desktop_rewrites = |_| true;
+    let file = ClaudeDesktop::config_file(&agents_env);
+    write(&file, DESKTOP_WITH_BR8N);
+
+    let r = migrate(
+        &fx.paths,
+        &fx.config,
+        &no_claude(),
+        &agents_env,
+        &no_crontab(),
+    )
+    .unwrap();
+
+    assert_eq!(read(&file), DESKTOP_WITH_BR8N);
+    assert!(
+        !r.lines
+            .iter()
+            .chain(&r.warnings)
+            .any(|l| l.contains("claude-desktop")),
+        "the install's agent pass reports it, once: {r:?}"
+    );
+    assert!(
+        fx.data.join("rhebok/db/graph.kz").is_file(),
+        "the rest still moved"
+    );
+}
+
+#[test]
+fn a_claude_desktop_that_is_not_running_moves_like_any_other_agent() {
+    let fx = fixture();
+    legacy_install(&fx);
+    let file = ClaudeDesktop::config_file(&env(&fx));
+    write(&file, DESKTOP_WITH_BR8N);
+
+    let r = migrate(
+        &fx.paths,
+        &fx.config,
+        &no_claude(),
+        &env(&fx),
+        &no_crontab(),
+    )
+    .unwrap();
+
+    let doc: serde_json::Value = serde_json::from_str(&read(&file)).unwrap();
+    assert!(doc["mcpServers"].get("br8n").is_none(), "{doc}");
+    assert_eq!(
+        doc["mcpServers"]["rhebok"]["command"],
+        fx.paths.bin.display().to_string()
+    );
+    assert!(
+        r.lines.iter().any(|l| l.contains("claude-desktop moved")),
+        "{:?}",
+        r.lines
+    );
 }
