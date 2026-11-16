@@ -1,0 +1,21 @@
+{
+  "name": "rhebok",
+  "description": "Semantic search over your personal knowledge base — notes, papers, clippings, and past sessions — with automatic context injection. Needs the rhebok program, installed separately.",
+  "version": "0.2.0",
+  "author": {
+    "name": "Stellenbosch Technologies",
+    "url": "https://github.com/Stellenbosch-Technologies"
+  },
+  "homepage": "https://github.com/Stellenbosch-Technologies/rhebok",
+  "repository": "https://github.com/Stellenbosch-Technologies/rhebok",
+  "license": "AGPL-3.0-only",
+  "keywords": ["search", "memory", "rag", "notes", "knowledge-base", "local-first", "mcp"],
+  "mcpServers": {
+    "rhebok": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/rhebok.sh",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

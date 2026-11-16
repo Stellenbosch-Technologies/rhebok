@@ -1,0 +1,14 @@
+{
+  "name": "rhebok",
+  "owner": {
+    "name": "Stellenbosch Technologies"
+  },
+  "description": "Local semantic search over your notes, papers and past agent sessions, injected into your prompts.",
+  "plugins": [
+    {
+      "name": "rhebok",
+      "source": "./",
+      "description": "Local semantic search over your notes, papers and past sessions, injected into your prompts when it clears a confidence gate."
+    }
+  ]
+}

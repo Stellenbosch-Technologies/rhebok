@@ -1,0 +1,29 @@
+{
+  "modules": [
+    "./rhebok-prehook.ts"
+  ],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/rhebok.sh\" hook prompt",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/rhebok.sh\" hook session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

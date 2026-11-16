@@ -1,0 +1,11 @@
+{
+  "name": "rhebok-dashboard-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.16.0"
+  }
+}
