@@ -1079,3 +1079,125 @@ fn memories_are_checked_against_the_config_the_same_restore_brings_back() {
         b"embedded at the default width".to_vec()
     );
 }
+
+#[test]
+fn a_generation_name_round_trips_through_its_created_at() {
+    let mut m = Manifest::new(None);
+    m.created_at = "2026-11-16T18:03:42.123Z".into();
+    let parsed = rhebok::backup::manifest::created_at_of(&m.generation_key()).unwrap();
+    assert_eq!(
+        parsed.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        m.created_at
+    );
+    assert!(rhebok::backup::manifest::created_at_of("manifest/latest.json").is_none());
+}
+
+#[test]
+fn a_manifest_written_in_the_same_millisecond_is_named_one_millisecond_later() {
+    let mut m = Manifest::new(None);
+    m.created_at = "2026-11-16T18:03:42.123Z".into();
+    m.name_after("manifest/2026-11-16T18-03-42.123Z.json");
+    assert_eq!(m.created_at, "2026-11-16T18:03:42.124Z");
+
+    m.created_at = "2026-11-16T18:03:42.100Z".into();
+    m.name_after("manifest/2026-11-16T18-03-42.123Z.json");
+    assert_eq!(
+        m.created_at, "2026-11-16T18:03:42.124Z",
+        "a clock a little behind"
+    );
+
+    m.created_at = "2026-11-16T18:03:42.500Z".into();
+    m.name_after("manifest/2026-11-16T18-03-42.123Z.json");
+    assert_eq!(m.created_at, "2026-11-16T18:03:42.500Z", "already later");
+
+    m.name_after("manifest/not-a-time.json");
+    assert_eq!(m.created_at, "2026-11-16T18:03:42.500Z");
+}
+
+#[test]
+fn a_previous_generation_far_ahead_of_this_clock_is_not_followed() {
+    let mut m = Manifest::new(None);
+    m.created_at = "2026-11-16T18:03:42.000Z".into();
+    m.name_after("manifest/2026-11-16T18-03-47.000Z.json");
+    assert_eq!(
+        m.created_at, "2026-11-16T18:03:47.001Z",
+        "five seconds ahead"
+    );
+
+    m.created_at = "2026-11-16T18:03:42.000Z".into();
+    m.name_after("manifest/2026-11-16T18-03-47.001Z.json");
+    assert_eq!(m.created_at, "2026-11-16T18:03:42.000Z", "more than five");
+
+    m.name_after("manifest/9999-12-31T23-59-59.999Z.json");
+    assert_eq!(m.created_at, "2026-11-16T18:03:42.000Z");
+}
+
+#[test]
+fn a_backup_never_overwrites_the_generation_the_latest_pointer_names() {
+    let fx = Fixture::new();
+    let key = Key::generate();
+    let remote = FakeRemote::new();
+    let first = back_up(&files_only(), &remote, Some(&key))
+        .unwrap()
+        .generation;
+    let kept = remote.get_bytes(&first).unwrap();
+    let ahead = (chrono::Utc::now() + chrono::Duration::seconds(4))
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let ahead_key = format!("manifest/{}.json", ahead.replace(':', "-"));
+    remote.put_bytes(&ahead_key, &kept).unwrap();
+    point_latest_at(&remote, &ahead_key);
+
+    std::fs::write(fx.golden(), "[[case]]\nquery = \"newer\"\n").unwrap();
+    let second = back_up(&files_only(), &remote, Some(&key))
+        .unwrap()
+        .generation;
+
+    let expected =
+        chrono::DateTime::parse_from_rfc3339(&ahead).unwrap() + chrono::Duration::milliseconds(1);
+    assert_eq!(
+        second,
+        format!(
+            "manifest/{}.json",
+            expected
+                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+                .replace(':', "-")
+        )
+    );
+    assert_eq!(remote.get_bytes(&ahead_key).unwrap(), kept);
+    remote.delete(Manifest::latest_key()).unwrap();
+    assert_eq!(resolve_generation(&remote, None).unwrap(), second);
+
+    std::fs::remove_file(fx.golden()).unwrap();
+    restore(&files_only(), &remote, Some(&key), &files()).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fx.golden()).unwrap(),
+        "[[case]]\nquery = \"newer\"\n"
+    );
+}
+
+#[test]
+fn a_latest_pointer_planted_far_in_the_future_cannot_date_the_next_backup() {
+    let _fx = Fixture::new();
+    let remote = FakeRemote::new();
+    let planted = "manifest/2999-01-01T00-00-00.000Z.json";
+    point_latest_at(&remote, planted);
+    let before = chrono::Utc::now();
+
+    let generation = back_up(&files_only(), &remote, None).unwrap().generation;
+
+    let dated = rhebok::backup::manifest::created_at_of(&generation).unwrap();
+    assert!(
+        dated >= before - chrono::Duration::seconds(1),
+        "{generation}"
+    );
+    assert!(dated <= chrono::Utc::now(), "{generation}");
+}
+
+fn point_latest_at(remote: &FakeRemote, generation: &str) {
+    remote
+        .put_bytes(
+            Manifest::latest_key(),
+            format!("{{\"generation\":\"{generation}\"}}").as_bytes(),
+        )
+        .unwrap();
+}
