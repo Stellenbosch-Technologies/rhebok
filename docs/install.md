@@ -122,7 +122,20 @@ itself into its own folder.
    ./rhebok install
    ```
 
-A Homebrew tap is not published yet; it will follow the first release.
+### Option D: with Homebrew
+
+On a Mac with Apple silicon, or on Linux with [Homebrew](https://brew.sh):
+
+```bash
+brew install stellenbosch-technologies/tap/rhebok
+rhebok install
+```
+
+Homebrew downloads the build for your machine and checks it against its
+checksum. It does not mark the program as downloaded from the internet, so a
+Mac runs it without a warning. `rhebok install` then sets rhebok up as
+[Step 2](#step-2-answer-the-installers-questions) describes, except that the
+program stays where Homebrew put it and Homebrew puts it on your PATH.
 
 ### Found rhebok in Claude Code's plugin menu?
 
@@ -241,8 +254,9 @@ If something is off, see [Install problems](#install-problems).
 rhebok update
 ```
 
-It downloads the newest release, checks it and installs it. The dashboard's
-Health tab has the same button. Restart your agents afterwards. Once a day, a
+It downloads the newest release, checks it and installs it. If Homebrew
+installed rhebok, it runs `brew update` and `brew upgrade rhebok` instead,
+then `rhebok install`. The dashboard's Health tab has the same button. Restart your agents afterwards. Once a day, a
 new Claude Code session checks whether a newer release exists and tells you
 when one does. Nothing installs until you run `rhebok update`. An update
 never downloads the optional distillation model.
@@ -279,7 +293,9 @@ rhebok uninstall            # removes rhebok, its plugin, the PATH link, and its
 rhebok uninstall --purge    # also deletes everything rhebok stored: index, memories, config, golden set, backup key
 ```
 
-Both refuse while an index is running. Your notes are never touched.
+Both refuse while an index is running. Your notes are never touched. If
+Homebrew installed rhebok, finish with `brew uninstall rhebok`, which removes
+the program itself.
 
 Plain `rhebok uninstall` removes the program, the Claude Code plugin and its
 cache, the `rhebok` links on your PATH, and rhebok's entries in every
@@ -397,8 +413,8 @@ Run `rhebok status` first. It names the problem.
   installer printed to your shell profile, then open a new terminal.
 - **macOS says it can't verify rhebok, or stops it the moment it starts:**
   the file came from a browser and still has the "downloaded" mark. Run
-  `xattr -d com.apple.quarantine rhebok` on the unpacked file, or use Option A
-  or B, which never add the mark.
+  `xattr -d com.apple.quarantine rhebok` on the unpacked file, or use Option A,
+  B or D, which never add the mark.
 - **`gh release download` says "no assets match":** the release has no build
   for your machine. [Build from source](#build-from-source).
 - **`curl` returns 404:** no release has been published yet;
