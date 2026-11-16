@@ -150,6 +150,7 @@ fn bench_report_roundtrips_beside_the_config() {
         memories: Some(0),
         no_graph: Some(false),
         project: None,
+        keep_footprint: Some(false),
     };
     rhebok::bench::write_report(&rhebok::bench::BenchReport {
         provenance: Some(provenance.clone()),
@@ -485,6 +486,7 @@ fn baseline() -> Provenance {
         memories: Some(12),
         no_graph: Some(false),
         project: None,
+        keep_footprint: Some(false),
     }
 }
 
@@ -1352,6 +1354,55 @@ fn a_no_graph_run_compared_against_a_pre_flag_report_is_not_comparable() {
         }]),
         "a pre-flag report (necessarily graph-on) compared against a --no-graph \
          run must be flagged, not certified comparable"
+    );
+}
+
+#[test]
+fn a_run_that_keeps_the_footprint_is_not_comparable_with_one_that_left_it_out() {
+    let prev = previous(Provenance {
+        keep_footprint: Some(false),
+        ..baseline()
+    });
+    let current = Provenance {
+        keep_footprint: Some(true),
+        ..baseline()
+    };
+    let verdict = comparability(Some(&prev), &current);
+    assert_eq!(
+        verdict,
+        Comparability::NotComparable(vec![Change::Footprint {
+            before: false,
+            after: true,
+        }])
+    );
+    let w = verdict.warning().expect("a footprint change must warn");
+    assert!(w.contains("--keep-footprint  false -> true"), "got:\n{w}");
+}
+
+#[test]
+fn a_report_from_before_the_footprint_was_left_out_counts_as_keeping_it() {
+    let prev = previous(Provenance {
+        keep_footprint: None,
+        ..baseline()
+    });
+    let leaving_out = Provenance {
+        keep_footprint: Some(false),
+        ..baseline()
+    };
+    assert_eq!(
+        comparability(Some(&prev), &leaving_out),
+        Comparability::NotComparable(vec![Change::Footprint {
+            before: true,
+            after: false,
+        }])
+    );
+    let keeping = Provenance {
+        keep_footprint: Some(true),
+        ..baseline()
+    };
+    assert_eq!(
+        comparability(Some(&prev), &keeping),
+        Comparability::Comparable
     );
 }
 

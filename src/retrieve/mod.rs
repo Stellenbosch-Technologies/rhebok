@@ -364,6 +364,22 @@ impl Retriever {
         Ok(self)
     }
 
+    pub fn excluding_rows(mut self, rows: &std::collections::BTreeSet<usize>) -> Self {
+        if rows.is_empty() {
+            return self;
+        }
+        let total = self.pack.as_ref().map_or(0, |p| p.rows());
+        let mut scope = self
+            .scope
+            .take()
+            .unwrap_or_else(|| crate::pack::scope::RowSet::all(total));
+        for &row in rows {
+            scope.remove(row);
+        }
+        self.scope = Some(scope);
+        self
+    }
+
     pub fn with_mounts(mut self, mounts: Vec<(String, std::sync::Arc<crate::pack::Pack>)>) -> Self {
         self.mounts = mounts;
         self
@@ -985,6 +1001,10 @@ impl Retriever {
     /// `None` for a storeless, pack-only retriever (see `Retriever::packed`).
     pub fn store(&self) -> Option<&Store> {
         self.store.as_ref()
+    }
+
+    pub fn pack(&self) -> Option<&crate::pack::Pack> {
+        self.pack.as_deref()
     }
 }
 

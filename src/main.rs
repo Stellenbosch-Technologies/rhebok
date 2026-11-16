@@ -69,6 +69,12 @@ enum Cmd {
     Bench {
         #[arg(long)]
         no_graph: bool,
+        #[arg(
+            long,
+            conflicts_with = "synthetic",
+            help = "Keep the sessions that quote a golden query instead of leaving them out"
+        )]
+        keep_footprint: bool,
         /// Measure one project: only its golden cases, searched inside its scope
         #[arg(long, conflicts_with = "synthetic")]
         project: Option<String>,
@@ -1306,8 +1312,11 @@ fn main() -> Result<()> {
             }
         }
         Cmd::Bench {
-            no_graph, project, ..
-        } => rhebok::bench::run(&cfg, no_graph, project.as_deref())?,
+            no_graph,
+            keep_footprint,
+            project,
+            ..
+        } => rhebok::bench::run(&cfg, no_graph, keep_footprint, project.as_deref())?,
         // `check` returns `Err` when it finds an error, which is what makes the
         // process exit non-zero — the report itself is already printed by then,
         // so the `Error:` line anyhow adds is a summary and not the finding.
