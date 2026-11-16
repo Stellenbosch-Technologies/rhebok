@@ -9,8 +9,9 @@ while they differ, because a plugin installed from a marketplace reads its
 version from that file), add a `## <version> — <date>` section to
 `CHANGELOG.md`, and merge to `main`. The `release` workflow builds every
 target, runs `scripts/release-smoke.sh` against each packaged tarball, and
-publishes `v<version>` with all of them and `install.sh` at once. A push to
-`main` whose version is already released does nothing. The first release
+publishes `v<version>` with all of them and `install.sh` at once. Then update
+the Homebrew formula, as [Homebrew](#homebrew) describes. A push to `main`
+whose version is already released does nothing. The first release
 needs manual steps; see
 [When the repository goes public](#when-the-repository-goes-public).
 
@@ -104,9 +105,11 @@ this order:
    `gh workflow run release.yml --ref main -f dry_run=false`. It publishes
    only from `main`, and only if `v<version>` is not released yet. Confirm
    that the release has all seven assets.
-6. Publish the Homebrew tap, as [Homebrew](#homebrew) below describes.
+6. Update the Homebrew formula, as [Homebrew](#homebrew) below describes.
 
-From then on, a version bump merged to `main` releases with no manual step.
+From then on, a version bump merged to `main` publishes the release with no
+manual step. Only the Homebrew formula still needs updating by hand, as
+[Homebrew](#homebrew) describes.
 
 Apply these settings once, in the repository and organization settings.
 Nothing in the tree can apply them.
@@ -124,19 +127,49 @@ Nothing in the tree can apply them.
 
 ## Homebrew
 
-No Homebrew tap is published yet. To publish one, create a
-`Stellenbosch-Technologies/homebrew-tap` repository after a release exists,
-then write the formula into a clone of it and commit and push it there:
+The tap is
+[`Stellenbosch-Technologies/homebrew-tap`](https://github.com/Stellenbosch-Technologies/homebrew-tap),
+and users install from it with
+`brew install stellenbosch-technologies/tap/rhebok`. Update its formula after
+every release. Work in the copy of the tap that Homebrew itself uses, because
+`brew audit` and `brew test` take a formula name, not a file path. From the
+root of this repository:
 
 ```bash
-scripts/homebrew-formula.sh <version> > ../homebrew-tap/Formula/rhebok.rb
+brew tap stellenbosch-technologies/tap
+tap="$(brew --repository stellenbosch-technologies/tap)"
+git -C "$tap" pull --ff-only
+scripts/homebrew-formula.sh <version> > rhebok.rb.new && mv rhebok.rb.new "$tap/Formula/rhebok.rb"
+export HOMEBREW_NO_AUTO_UPDATE=1
+brew audit --strict --online stellenbosch-technologies/tap/rhebok
+brew upgrade stellenbosch-technologies/tap/rhebok
+brew test stellenbosch-technologies/tap/rhebok
+git -C "$tap" commit -am "The tap installs rhebok <version>"
+git -C "$tap" push
 ```
+
+`HOMEBREW_NO_AUTO_UPDATE` stops `brew upgrade` from pulling the tap over the
+uncommitted formula. Use `brew install` instead of `brew upgrade` if rhebok is
+not installed from the tap yet. The script writes to a temporary file first,
+so a failed run leaves the old formula in place.
 
 The script reads each build's checksum from the published release, so it
 fails until the release has all three builds. The formula installs `LICENSE`
 and `THIRD-PARTY-NOTICES.md` beside the program, and its test checks both.
-Run it again for every release. Once the tap exists, add the Homebrew option
-back to the README and the install guide.
+For a version with a pre-release suffix, such as `0.3.0-rc.1`, the script
+adds an explicit `version` line, because Homebrew reads only `0.3.0` from the
+URL.
+
+The macOS build is the formula's top-level `url`, with
+`depends_on arch: :arm64`, so an Intel Mac is refused with a clear message.
+Keep it there. Inside `on_macos`, `brew audit --strict` rejects a `url`.
+Inside `on_arm`, an Intel Mac has no URL at all, and Homebrew cannot load the
+formula there.
+
+Do not skip this step. `rhebok update` on a Homebrew install runs
+`brew upgrade rhebok` and then checks the version it got. Until the tap
+carries the new version, it fails with "its rhebok formula has not caught up
+with the release yet".
 
 ## Building a release by hand
 

@@ -62,8 +62,10 @@ curl -fsSL https://github.com/Stellenbosch-Technologies/rhebok/releases/latest/d
 The installer puts `rhebok` on your PATH, downloads the embedding model (about
 640 MB, after asking), registers the Claude Code plugin, and offers to connect
 the other agents it finds. It also offers the optional session distillation
-model (about 2.5 GB). Other ways to install, including building from source,
-are in the [install guide](docs/install.md).
+model (about 2.5 GB). With [Homebrew](https://brew.sh), install it with
+`brew install stellenbosch-technologies/tap/rhebok`, then run `rhebok install`.
+Other ways to install, including building from source, are in the
+[install guide](docs/install.md).
 
 rhebok used to be called br8n. If you used br8n, install rhebok the same way:
 `rhebok install` moves your br8n index, memories and config, and your agent
@@ -118,7 +120,6 @@ the golden set and the default backup key. The
   inside WSL.
 - **Intel Macs** have no release build yet, because of an upstream library
   issue.
-- **A Homebrew tap** will follow the first release.
 
 Ideas and bug reports are welcome in the
 [issues](https://github.com/Stellenbosch-Technologies/rhebok/issues); see
