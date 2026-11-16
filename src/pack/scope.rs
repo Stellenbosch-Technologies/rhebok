@@ -286,6 +286,22 @@ impl RowSet {
         }
     }
 
+    pub fn all(rows: usize) -> RowSet {
+        let mut set = RowSet::empty(rows);
+        for row in 0..rows {
+            set.insert(row);
+        }
+        set
+    }
+
+    pub fn remove(&mut self, row: usize) {
+        let (w, b) = (row / 64, row % 64);
+        if w < self.bits.len() && self.bits[w] & (1 << b) != 0 {
+            self.bits[w] &= !(1 << b);
+            self.len -= 1;
+        }
+    }
+
     pub fn insert(&mut self, row: usize) {
         let (w, b) = (row / 64, row % 64);
         if w < self.bits.len() && self.bits[w] & (1 << b) == 0 {

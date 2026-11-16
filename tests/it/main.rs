@@ -23,6 +23,7 @@ mod backup_run;
 mod backup_s3;
 #[cfg(feature = "backup")]
 mod backup_snapshot;
+mod bench_footprint;
 mod chunk;
 mod cli;
 mod config_edit;

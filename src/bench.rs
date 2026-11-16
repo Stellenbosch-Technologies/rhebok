@@ -1,3 +1,4 @@
+pub mod footprint;
 pub mod synthetic;
 
 use crate::config::{Config, Profile, Surface};
@@ -960,6 +961,8 @@ pub struct Provenance {
     pub no_graph: Option<bool>,
     #[serde(default)]
     pub project: Option<String>,
+    #[serde(default)]
+    pub keep_footprint: Option<bool>,
 }
 
 /// sha256 of a golden set's text, hex-encoded.
@@ -1017,6 +1020,10 @@ pub enum Change {
         before: bool,
         after: bool,
     },
+    Footprint {
+        before: bool,
+        after: bool,
+    },
 }
 
 impl Change {
@@ -1046,6 +1053,9 @@ impl Change {
             }
             Change::GraphAblation { before, after } => {
                 format!("--no-graph        {before} -> {after}")
+            }
+            Change::Footprint { before, after } => {
+                format!("--keep-footprint  {before} -> {after}")
             }
             Change::Project { before, after } => format!(
                 "--project         {} -> {}",
@@ -1170,6 +1180,11 @@ pub fn comparability(previous: Option<&BenchReport>, current: &Provenance) -> Co
     if before != after {
         changes.push(Change::GraphAblation { before, after });
     }
+    let before = prev.keep_footprint.unwrap_or(true);
+    let after = current.keep_footprint.unwrap_or(true);
+    if before != after {
+        changes.push(Change::Footprint { before, after });
+    }
     if prev.project != current.project {
         changes.push(Change::Project {
             before: prev.project.clone(),
@@ -1293,7 +1308,12 @@ pub fn without_graph(mut p: crate::config::Profile) -> crate::config::Profile {
     p
 }
 
-pub fn run(cfg: &Config, no_graph: bool, project: Option<&str>) -> Result<()> {
+pub fn run(
+    cfg: &Config,
+    no_graph: bool,
+    keep_footprint: bool,
+    project: Option<&str>,
+) -> Result<()> {
     let golden_file = golden_path();
     let golden_text = std::fs::read_to_string(&golden_file).with_context(|| {
         format!(
@@ -1314,6 +1334,7 @@ pub fn run(cfg: &Config, no_graph: bool, project: Option<&str>) -> Result<()> {
     })?;
     let mut golden: Golden = parse_golden(&golden_text)
         .with_context(|| format!("could not parse `{}` as TOML", golden_file.display()))?;
+    let golden_queries: Vec<String> = golden.case.iter().map(|c| c.query.clone()).collect();
     let projects = crate::project::all_projects(cfg);
     let unmeasured: Vec<&String> = projects
         .keys()
@@ -1370,6 +1391,21 @@ pub fn run(cfg: &Config, no_graph: bool, project: Option<&str>) -> Result<()> {
     let retriever = crate::retrieve_for_profile(cfg, Surface::Hook, &Profile::tier(4))?;
     let wanted = crate::context::scopes_for(cfg, scope_project.as_ref())?;
     let retriever = retriever.with_scope(&Config::db_path(), &wanted)?;
+    let footprint = match retriever.pack() {
+        Some(pack) if !keep_footprint => footprint::in_pack(pack, &golden_queries)?,
+        _ => footprint::Footprint::default(),
+    };
+    let retriever = retriever.excluding_rows(&footprint.rows);
+    if !footprint.rows.is_empty() {
+        println!(
+            "left out {} chunks that quote a golden query, including every chunk of {} \
+             session(s) that quote {} or more: the bench would otherwise score its own \
+             footprint. --keep-footprint measures with them.\n",
+            footprint.rows.len(),
+            footprint.sessions.len(),
+            footprint::WHOLE_SESSION_QUOTES
+        );
+    }
     if let Some(p) = &scope_project {
         println!(
             "scoped to project `{}`: {} of the index's rows, {} golden case(s)\n",
@@ -1474,6 +1510,7 @@ pub fn run(cfg: &Config, no_graph: bool, project: Option<&str>) -> Result<()> {
         memories,
         no_graph: Some(no_graph),
         project: project.map(str::to_string),
+        keep_footprint: Some(keep_footprint),
     };
 
     // The previous report is read BEFORE this run overwrites it, and the
