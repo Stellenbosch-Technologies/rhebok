@@ -1,8 +1,8 @@
 use rhebok::hook::PromptAgent;
 use rhebok::setup::agents::files::{backup_path, Unparseable};
 use rhebok::setup::agents::{
-    self, api, claude_desktop::ClaudeDesktop, codex, codex::Codex, cursor::Cursor, gemini::Gemini,
-    Agent, AgentEnv, AgentError, ConnectOptions, Status,
+    self, api, claude_desktop, claude_desktop::ClaudeDesktop, codex, codex::Codex, cursor::Cursor,
+    gemini::Gemini, Agent, AgentEnv, AgentError, ConnectOptions, Status,
 };
 use rhebok::setup::Paths;
 use std::path::{Path, PathBuf};
@@ -565,4 +565,325 @@ fn claude_desktop_is_detected_from_the_environments_applications_folder() {
         ClaudeDesktop.detect(&fx.env).installed,
         cfg!(target_os = "macos")
     );
+}
+
+const DESKTOP_WITH_BR8N: &str = r#"{
+  "mcpServers": {
+    "br8n": { "command": "/old/br8n", "args": ["mcp"] },
+    "other": { "command": "/usr/bin/other" }
+  },
+  "preferences": { "sidebarMode": "epitaxy" }
+}
+"#;
+
+fn desktop_running(fx: &mut Fx) {
+    fx.env.desktop_rewrites = |_| true;
+}
+
+#[test]
+fn the_running_desktop_app_is_found_in_the_process_list_and_its_helpers_are_not() {
+    let helpers = "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper\n\
+                   /Applications/Claude.app/Contents/Helpers/disclaimer\n\
+                   /Users/u/Library/Application Support/Claude/claude-code/2.1.0/x/claude.app/Contents/MacOS/claude\n";
+    assert!(!claude_desktop::lists_the_app(helpers));
+    let with_app = format!("{helpers}/Applications/Claude.app/Contents/MacOS/Claude\n");
+    assert!(claude_desktop::lists_the_app(&with_app));
+    assert!(claude_desktop::lists_the_app(
+        "/Users/u/Applications/Claude.app/Contents/MacOS/Claude   \n"
+    ));
+}
+
+#[test]
+fn a_desktop_config_outside_the_account_home_is_never_reported_as_rewritten() {
+    let fx = fixture();
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP);
+    assert!(!claude_desktop::rewrites_while_running(&file));
+}
+
+#[test]
+fn connecting_claude_desktop_while_it_runs_writes_nothing_and_says_how_to_finish() {
+    let mut fx = fixture();
+    desktop_running(&mut fx);
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP_WITH_BR8N);
+
+    let err = ClaudeDesktop.connect(&fx.env, &none()).unwrap_err();
+    assert!(
+        matches!(
+            err.downcast_ref::<AgentError>(),
+            Some(AgentError::Unavailable(_))
+        ),
+        "{err:#}"
+    );
+    let message = format!("{err:#}");
+    assert!(message.contains("Claude Desktop is running"), "{message}");
+    assert!(
+        message.contains("rhebok connect claude-desktop"),
+        "{message}"
+    );
+    assert_eq!(read(&file), DESKTOP_WITH_BR8N);
+    assert!(!backup_path(&file).exists());
+}
+
+#[test]
+fn an_already_connected_desktop_needs_no_write_so_a_running_app_is_no_obstacle() {
+    let mut fx = fixture();
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP);
+    ClaudeDesktop.connect(&fx.env, &none()).unwrap();
+    let before = read(&file);
+
+    desktop_running(&mut fx);
+    let again = ClaudeDesktop.connect(&fx.env, &none()).unwrap();
+    assert!(again.is_empty(), "{again:?}");
+    assert_eq!(read(&file), before);
+}
+
+#[test]
+fn disconnecting_claude_desktop_while_it_runs_is_refused_only_when_rhebok_is_in_the_file() {
+    let mut fx = fixture();
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP);
+    ClaudeDesktop.connect(&fx.env, &none()).unwrap();
+    let connected = read(&file);
+
+    desktop_running(&mut fx);
+    let err = ClaudeDesktop.disconnect(&fx.env).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("rhebok disconnect claude-desktop"),
+        "{err:#}"
+    );
+    assert_eq!(read(&file), connected);
+
+    write(&file, DESKTOP_WITH_BR8N);
+    let nothing = ClaudeDesktop.disconnect(&fx.env).unwrap();
+    assert!(nothing.is_empty(), "{nothing:?}");
+    assert_eq!(read(&file), DESKTOP_WITH_BR8N);
+}
+
+#[test]
+fn a_leftover_br8n_entry_reads_as_stale_and_connecting_replaces_it() {
+    let fx = fixture();
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP_WITH_BR8N);
+    match ClaudeDesktop.status(&fx.env) {
+        Status::Stale(reason) => assert!(reason.contains("br8n"), "{reason}"),
+        other => panic!("expected stale, got {other:?}"),
+    }
+
+    let change = ClaudeDesktop.connect(&fx.env, &none()).unwrap();
+    assert_eq!(change.files, vec![file.clone()]);
+    let v = json(&file);
+    assert!(v["mcpServers"].get("br8n").is_none(), "{v}");
+    assert_eq!(v["mcpServers"]["rhebok"]["command"], bin(&fx));
+    assert_eq!(v["mcpServers"]["other"]["command"], "/usr/bin/other");
+    assert_eq!(v["preferences"]["sidebarMode"], "epitaxy");
+    assert_eq!(ClaudeDesktop.status(&fx.env), Status::Connected);
+}
+
+#[test]
+fn a_br8n_entry_beside_a_current_rhebok_one_still_reads_as_stale() {
+    let fx = fixture();
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP);
+    ClaudeDesktop.connect(&fx.env, &none()).unwrap();
+    let mut v = json(&file);
+    v["mcpServers"]["br8n"] = serde_json::json!({ "command": "/old/br8n", "args": ["mcp"] });
+    write(&file, &serde_json::to_string_pretty(&v).unwrap());
+
+    assert!(matches!(ClaudeDesktop.status(&fx.env), Status::Stale(_)));
+    ClaudeDesktop.connect(&fx.env, &none()).unwrap();
+    assert!(json(&file)["mcpServers"].get("br8n").is_none());
+    assert_eq!(ClaudeDesktop.status(&fx.env), Status::Connected);
+}
+
+#[test]
+fn a_quiet_install_repairs_a_leftover_br8n_entry_once_claude_desktop_is_closed() {
+    let mut fx = fixture();
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP_WITH_BR8N);
+
+    desktop_running(&mut fx);
+    let open = agents::offer_after_install(&fx.env, false, true, |_| panic!("never asks"));
+    assert!(
+        open.warnings
+            .iter()
+            .any(|w| w.contains("Claude Desktop is running")),
+        "{open:?}"
+    );
+    assert_eq!(read(&file), DESKTOP_WITH_BR8N);
+
+    fx.env.desktop_rewrites = |_| false;
+    agents::offer_after_install(&fx.env, false, true, |_| panic!("never asks"));
+    assert_eq!(ClaudeDesktop.status(&fx.env), Status::Connected);
+}
+
+#[test]
+fn the_agents_api_answers_409_while_claude_desktop_runs() {
+    let mut fx = fixture();
+    desktop_running(&mut fx);
+    write(&ClaudeDesktop::config_file(&fx.env), DESKTOP);
+    let (status, body) = api::connect(&fx.env, br#"{"id":"claude-desktop"}"#);
+    assert_eq!(status, 409, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("Claude Desktop is running"),
+        "{body}"
+    );
+}
+
+#[test]
+fn the_account_config_is_matched_through_a_symlinked_home_and_nothing_else_is() {
+    let t = tempfile::tempdir().unwrap();
+    let home = t.path().join("home");
+    let config = home.join("Library/Application Support/Claude/claude_desktop_config.json");
+    write(&config, "{}");
+    assert!(claude_desktop::is_account_config(&config, &home));
+
+    let linked = t.path().join("linked-home");
+    std::os::unix::fs::symlink(&home, &linked).unwrap();
+    assert!(claude_desktop::is_account_config(
+        &linked.join("Library/Application Support/Claude/claude_desktop_config.json"),
+        &home
+    ));
+
+    assert!(!claude_desktop::is_account_config(
+        &config.with_file_name("other.json"),
+        &home
+    ));
+    let elsewhere = t.path().join("sandbox");
+    write(
+        &elsewhere.join("Library/Application Support/Claude/claude_desktop_config.json"),
+        "{}",
+    );
+    assert!(!claude_desktop::is_account_config(&config, &elsewhere));
+}
+
+#[test]
+fn a_broken_connection_with_a_br8n_entry_is_still_not_written_while_claude_desktop_runs() {
+    let mut fx = fixture();
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP);
+    ClaudeDesktop.connect(&fx.env, &none()).unwrap();
+    let mut v = json(&file);
+    v["mcpServers"]["br8n"] = serde_json::json!({ "command": "/old/br8n", "args": ["mcp"] });
+    write(&file, &serde_json::to_string_pretty(&v).unwrap());
+    std::fs::remove_file(fx.env.bin()).unwrap();
+    assert!(matches!(ClaudeDesktop.status(&fx.env), Status::Broken(_)));
+    let before = read(&file);
+
+    desktop_running(&mut fx);
+    assert!(ClaudeDesktop.connect(&fx.env, &none()).is_err());
+    assert_eq!(read(&file), before);
+}
+
+#[test]
+fn an_interactive_install_does_not_offer_claude_desktop_while_it_runs() {
+    let mut fx = fixture();
+    std::fs::create_dir_all(ClaudeDesktop::config_dir(&fx.env)).unwrap();
+    assert!(ClaudeDesktop.detect(&fx.env).installed);
+    desktop_running(&mut fx);
+    let r = agents::offer_after_install(&fx.env, false, false, |q| {
+        assert!(!q.contains("Claude Desktop"), "asked: {q}");
+        false
+    });
+    assert!(
+        r.lines
+            .iter()
+            .any(|l| l.starts_with("claude-desktop:") && l.contains("it is running")),
+        "{r:?}"
+    );
+    assert!(!ClaudeDesktop::config_file(&fx.env).exists());
+}
+
+#[test]
+fn a_leftover_br8n_entry_is_reported_once_while_claude_desktop_runs() {
+    let mut fx = fixture();
+    write(&ClaudeDesktop::config_file(&fx.env), DESKTOP_WITH_BR8N);
+    desktop_running(&mut fx);
+    let r = agents::offer_after_install(&fx.env, false, true, |_| panic!("never asks"));
+    let about: Vec<_> = r
+        .warnings
+        .iter()
+        .chain(&r.lines)
+        .filter(|l| l.contains("claude-desktop"))
+        .collect();
+    assert_eq!(about.len(), 1, "{r:?}");
+    assert!(
+        about[0].contains("rhebok connect claude-desktop"),
+        "{about:?}"
+    );
+}
+
+#[test]
+fn uninstall_is_refused_while_claude_desktop_runs_with_rhebok_in_its_config() {
+    let mut fx = fixture();
+    assert!(agents::refuse_uninstall_while_blocked(&fx.env).is_ok());
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP);
+    ClaudeDesktop.connect(&fx.env, &none()).unwrap();
+    assert!(agents::refuse_uninstall_while_blocked(&fx.env).is_ok());
+
+    desktop_running(&mut fx);
+    let message = format!(
+        "{:#}",
+        agents::refuse_uninstall_while_blocked(&fx.env).unwrap_err()
+    );
+    assert!(message.contains("rhebok uninstall"), "{message}");
+    assert!(message.contains("Nothing was removed"), "{message}");
+
+    write(&file, DESKTOP_WITH_BR8N);
+    assert!(agents::refuse_uninstall_while_blocked(&fx.env).is_ok());
+}
+
+#[test]
+fn replacing_a_br8n_entry_adopts_its_backup_and_names_the_chat_instructions() {
+    let fx = fixture();
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP_WITH_BR8N);
+    let mut legacy_backup = file.clone().into_os_string();
+    legacy_backup.push(".br8n-bak");
+    let legacy_backup = PathBuf::from(legacy_backup);
+    write(&legacy_backup, DESKTOP);
+
+    let change = ClaudeDesktop.connect(&fx.env, &none()).unwrap();
+    assert_eq!(read(&backup_path(&file)), DESKTOP);
+    assert!(!legacy_backup.exists());
+    assert!(
+        change.notes.iter().any(|n| n.contains("br8n_context")),
+        "{change:?}"
+    );
+}
+
+#[test]
+fn a_br8n_entry_beside_a_working_rhebok_one_still_counts_as_connected_for_chat() {
+    let fx = fixture();
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, DESKTOP);
+    ClaudeDesktop.connect(&fx.env, &none()).unwrap();
+    let mut v = json(&file);
+    v["mcpServers"]["br8n"] = serde_json::json!({ "command": "/old/br8n", "args": ["mcp"] });
+    write(&file, &serde_json::to_string_pretty(&v).unwrap());
+
+    assert!(matches!(ClaudeDesktop.status(&fx.env), Status::Stale(_)));
+    assert_eq!(ClaudeDesktop::rhebok_status(&fx.env), Status::Connected);
+}
+
+#[test]
+fn only_an_unparseable_file_is_flagged_as_one_to_fix_by_hand() {
+    let mut fx = fixture();
+    let file = ClaudeDesktop::config_file(&fx.env);
+    write(&file, "{ // not json\n}\n");
+    let (status, body) = api::connect(&fx.env, br#"{"id":"claude-desktop"}"#);
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["unparseable"], true, "{body}");
+
+    write(&file, DESKTOP);
+    desktop_running(&mut fx);
+    let (status, body) = api::connect(&fx.env, br#"{"id":"claude-desktop"}"#);
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["unparseable"], false, "{body}");
 }

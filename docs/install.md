@@ -442,6 +442,12 @@ Run `rhebok status` first. It names the problem.
   replaces the br8n Claude Code plugin, and moves each connected agent to
   rhebok. Rename any `BR8N_*` variables in your
   shell profile yourself; rhebok warns about the ones it sees. Then restart
-  Claude Code and Claude Desktop.
+  Claude Code and Claude Desktop. If Claude Desktop was running, its br8n
+  entry is left in place and rhebok says so: quit Claude Desktop, run
+  `rhebok connect claude-desktop` from a terminal, then open it again.
+- **`claude-desktop` shows as stale, or a change to it does not last:** Claude
+  Desktop saves its config file from memory while it runs, which undoes any
+  change made meanwhile. Quit Claude Desktop (⌘Q), run
+  `rhebok connect claude-desktop` from a terminal, then open it again.
 - **Nothing is added to Claude's prompts after an update:** restart Claude
   Code. The running session still has the old version.

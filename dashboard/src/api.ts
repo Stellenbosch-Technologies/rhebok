@@ -128,11 +128,14 @@ export type Agents = { agents: Agent[]; snippets: AgentSnippets };
 export type AgentChange = { files: string[]; backups: string[]; notes: string[] };
 export type AgentOutcome = { agent: Agent; change: AgentChange };
 export const getAgents = () => j<Agents>("/api/agents");
-export type AgentResult = { kind: "done"; outcome: AgentOutcome } | { kind: "refused"; status: number; error: string };
+export type AgentResult =
+  | { kind: "done"; outcome: AgentOutcome }
+  | { kind: "refused"; status: number; error: string; unparseable: boolean };
 async function agentAction(path: string, body: unknown): Promise<AgentResult> {
   const { status, payload } = await postForStatus(path, body);
   if (status === 200) return { kind: "done", outcome: payload as AgentOutcome };
-  return { kind: "refused", status, error: (payload as { error?: string } | null)?.error ?? `${path}: ${status}` };
+  const refusal = payload as { error?: string; unparseable?: boolean } | null;
+  return { kind: "refused", status, error: refusal?.error ?? `${path}: ${status}`, unparseable: refusal?.unparseable === true };
 }
 export const connectAgent = (id: AgentId, instructions?: boolean) =>
   agentAction("/api/agents/connect", instructions ? { id, instructions } : { id });

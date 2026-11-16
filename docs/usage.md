@@ -213,6 +213,15 @@ it rather than rewritten. `rhebok disconnect` removes only what rhebok added;
 once (`/hooks`); Claude Desktop needs a restart to load the server. The
 dashboard's Integrations tab (through `/api/agents`) drives the same code.
 
+Claude Desktop saves `claude_desktop_config.json` from memory while it runs,
+so a change made to the file then is lost. On macOS, rhebok therefore refuses
+any connect, disconnect or uninstall that would change that file while
+Claude Desktop is running, and says so. Quit it (⌘Q), run the command from a
+terminal, then open it again. If you run Claude Code inside the Claude app,
+quitting it ends that session too, so use a separate terminal. An old `br8n`
+server entry left in Claude Desktop's, Cursor's or Gemini CLI's config shows
+as `stale` in `rhebok agents`, and connecting replaces it.
+
 ## Slash commands
 
 | Command | What it does |

@@ -1,5 +1,5 @@
 use super::files::{self, unparseable, Json};
-use super::{Change, Status, MCP_ARGS, SERVER_NAME};
+use super::{Change, Status, LEGACY_SERVER_NAME, MCP_ARGS, SERVER_NAME};
 use anyhow::Result;
 use std::path::Path;
 
@@ -97,6 +97,12 @@ pub fn upsert_server(doc: &mut Json, bin: &str, extra: &[(&str, &str)]) -> Resul
 
 pub fn remove_server(doc: &mut Json) -> bool {
     remove_server_named(doc, SERVER_NAME)
+}
+
+pub fn has_server_named(doc: &Json, name: &str) -> bool {
+    doc.get(SERVERS_KEY)
+        .and_then(|servers| servers.get(name))
+        .is_some()
 }
 
 pub fn remove_server_named(doc: &mut Json, name: &str) -> bool {
@@ -275,6 +281,17 @@ pub fn combine(states: &[EntryState], what: &[&str]) -> Status {
     Status::Stale(reasons.join("; "))
 }
 
+pub const LEGACY_SERVER_LEFT: &str =
+    "the old br8n MCP server entry is still there; connecting replaces it with rhebok's";
+
+fn with_legacy_server(status: Status) -> Status {
+    match status {
+        Status::Stale(reason) => Status::Stale(format!("{reason}; {LEGACY_SERVER_LEFT}")),
+        Status::Broken(reason) => Status::Broken(reason),
+        Status::Connected | Status::NotConnected => Status::Stale(LEGACY_SERVER_LEFT.to_string()),
+    }
+}
+
 pub struct McpJsonAgent<'a> {
     pub file: &'a Path,
     pub extra: &'a [(&'a str, &'a str)],
@@ -293,6 +310,16 @@ impl McpJsonAgent<'_> {
     }
 
     pub fn status(&self, env: &super::AgentEnv) -> Status {
+        let status = self.status_ignoring_br8n(env);
+        match load(self.file) {
+            Ok(loaded) if has_server_named(&loaded.doc, LEGACY_SERVER_NAME) => {
+                with_legacy_server(status)
+            }
+            _ => status,
+        }
+    }
+
+    pub fn status_ignoring_br8n(&self, env: &super::AgentEnv) -> Status {
         match load(self.file) {
             Err(e) => Status::Broken(format!("{e:#}")),
             Ok(loaded) => {
@@ -302,13 +329,24 @@ impl McpJsonAgent<'_> {
         }
     }
 
+    pub fn connect_would_write(&self, env: &super::AgentEnv) -> Result<bool> {
+        let loaded = load(self.file)?;
+        let (states, _) = self.states(&loaded.doc, &env.bin_str());
+        Ok(!states.iter().all(|s| *s == EntryState::Matches)
+            || has_server_named(&loaded.doc, LEGACY_SERVER_NAME))
+    }
+
     pub fn connect(&self, env: &super::AgentEnv) -> Result<Change> {
         let mut change = Change::default();
         let mut loaded = load(self.file)?;
         let bin = env.bin_str();
         let (states, _) = self.states(&loaded.doc, &bin);
-        if states.iter().all(|s| *s == EntryState::Matches) {
+        let legacy = has_server_named(&loaded.doc, LEGACY_SERVER_NAME);
+        if states.iter().all(|s| *s == EntryState::Matches) && !legacy {
             return Ok(change);
+        }
+        if remove_server_named(&mut loaded.doc, LEGACY_SERVER_NAME) {
+            crate::setup::migrate::adopt_legacy_backup(self.file);
         }
         upsert_server(&mut loaded.doc, &bin, self.extra).map_err(|e| shape_error(self.file, &e))?;
         if let Some(h) = &self.hook {

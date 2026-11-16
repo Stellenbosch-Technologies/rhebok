@@ -471,6 +471,9 @@ struct LegacyAgent {
 
 fn reconnect_legacy_agents(env: &AgentEnv, r: &mut MigrationReport) {
     for agent in agents::all() {
+        if agent.blocked(env).is_some() {
+            continue;
+        }
         let found = match remove_legacy_entries(agent.id(), env) {
             Ok(found) => found,
             Err(e) => {
@@ -488,9 +491,10 @@ fn reconnect_legacy_agents(env: &AgentEnv, r: &mut MigrationReport) {
             instructions: found.instructions,
         };
         if agent.id() == "claude-desktop" {
-            r.warnings.push(
-                "claude-desktop: Chat Project instructions copied from `br8n project instructions` name the old br8n_context tool; paste the text `rhebok project instructions <name>` prints instead".to_string(),
-            );
+            r.warnings.push(format!(
+                "claude-desktop: {}",
+                agents::claude_desktop::CHAT_INSTRUCTIONS_NOTE
+            ));
         }
         match agents::connect(agent.as_ref(), env, &opts) {
             Ok(change) => r.lines.push(format!(

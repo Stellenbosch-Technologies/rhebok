@@ -93,7 +93,11 @@ export default function InstallCard({ active, onOpenSetting }: { active: boolean
     setOutcome(null);
     try {
       const r = await connectAgent(agent);
-      setOutcome(r.kind === "done" ? { action: "connect", change: r.outcome.change } : { action: "connect", error: r.error, status: r.status });
+      setOutcome(
+        r.kind === "done"
+          ? { action: "connect", change: r.outcome.change }
+          : { action: "connect", error: r.error, status: r.status, unparseable: r.unparseable },
+      );
     } catch (e) {
       setOutcome({ action: "connect", error: e instanceof Error ? e.message : String(e) });
     } finally {

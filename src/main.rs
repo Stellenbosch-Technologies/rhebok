@@ -1441,9 +1441,9 @@ fn main() -> Result<()> {
             ProjectCmd::Instructions { name } => {
                 let text = rhebok::project::chat_instructions(&cfg, &name)?;
                 let env = rhebok::setup::agents::AgentEnv::from_env();
-                let desktop = rhebok::setup::agents::claude_desktop::ClaudeDesktop;
-                use rhebok::setup::agents::Agent;
-                if desktop.status(&env) != rhebok::setup::agents::Status::Connected {
+                if rhebok::setup::agents::claude_desktop::ClaudeDesktop::rhebok_status(&env)
+                    != rhebok::setup::agents::Status::Connected
+                {
                     eprintln!(
                         "rhebok: Claude Desktop does not have rhebok connected yet, so these \
                          instructions would call a tool it cannot see; run \
@@ -1721,6 +1721,9 @@ fn main() -> Result<()> {
         } => run_connect(agents, instructions, all_detected, print)?,
         Cmd::Disconnect { agents } => run_disconnect(agents)?,
         Cmd::Uninstall { purge, yes } => {
+            rhebok::setup::agents::refuse_uninstall_while_blocked(
+                &rhebok::setup::agents::AgentEnv::from_env(),
+            )?;
             let paths = rhebok::setup::Paths::from_env();
             let opts = rhebok::setup::install::UninstallOpts {
                 purge,
