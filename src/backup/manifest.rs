@@ -77,6 +77,18 @@ pub struct LatestPointer {
     pub generation: String,
 }
 
+pub const FURTHEST_LEAD_FOLLOWED_MS: i64 = 5_000;
+
+pub fn created_at_of(generation: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let stamp = generation
+        .strip_prefix("manifest/")?
+        .strip_suffix(".json")?;
+    let (date, time) = stamp.split_once('T')?;
+    chrono::DateTime::parse_from_rfc3339(&format!("{date}T{}", time.replace('-', ":")))
+        .ok()
+        .map(|t| t.with_timezone(&chrono::Utc))
+}
+
 pub fn blob_key(key_id: Option<&str>, hash: &str) -> String {
     match key_id {
         Some(id) => format!("blobs/{id}/{hash}"),
@@ -211,6 +223,24 @@ impl Manifest {
             );
         }
         Ok(())
+    }
+
+    pub fn name_after(&mut self, previous_generation: &str) {
+        let Some(previous) = created_at_of(previous_generation) else {
+            return;
+        };
+        let Ok(mine) = chrono::DateTime::parse_from_rfc3339(&self.created_at)
+            .map(|t| t.with_timezone(&chrono::Utc))
+        else {
+            return;
+        };
+        if mine > previous
+            || previous - mine > chrono::Duration::milliseconds(FURTHEST_LEAD_FOLLOWED_MS)
+        {
+            return;
+        }
+        self.created_at = (previous + chrono::Duration::milliseconds(1))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     }
 
     pub fn generation_key(&self) -> String {

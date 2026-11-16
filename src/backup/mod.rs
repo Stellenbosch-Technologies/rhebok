@@ -147,6 +147,13 @@ pub fn back_up(cfg: &Config, remote: &dyn Remote, key: Option<&Key>) -> Result<B
             }
         }
 
+        if let Some(previous) = remote
+            .get_bytes(Manifest::latest_key())
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<LatestPointer>(&bytes).ok())
+        {
+            m.name_after(&previous.generation);
+        }
         let generation = m.generation_key();
         remote
             .put_bytes(&generation, &manifest::encode(&m, key)?)
