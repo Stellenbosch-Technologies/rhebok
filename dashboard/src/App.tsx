@@ -7,6 +7,7 @@ import MemoriesTab from "./tabs/MemoriesTab";
 import IntegrationsTab from "./tabs/IntegrationsTab";
 import SettingsTab, { SettingsRequest } from "./tabs/SettingsTab";
 import Onboarding from "./Onboarding";
+import { RhebokIcon } from "./Logo";
 import { sectionOf } from "./settings/model";
 
 const TABS = ["Graph", "Search", "Memories", "Integrations", "Health", "Settings"] as const;
@@ -101,21 +102,21 @@ export default function App() {
   }, []);
   return (
     <div className="h-screen flex flex-col">
-      <header className="h-14 bg-surface border-b border-line flex items-center gap-7 px-6 shrink-0">
+      <header className="h-14 bg-ground border-b border-line flex items-center gap-8 px-6 shrink-0">
         <div className="flex items-center gap-2.5">
-          <span className="font-serif font-semibold text-[19px]">rhebok</span>
-          <span className="w-[7px] h-[7px] rounded-full bg-accent" />
+          <RhebokIcon className="w-8 h-8" />
+          <span className="font-display font-medium text-[22px] tracking-[-0.02em]">Rhebok</span>
         </div>
-        <nav className="flex gap-1">
+        <nav className="flex gap-1 self-stretch">
           {TABS.map((t) => (
             <button key={t} onClick={() => { setSetup((s) => (s === "open" ? "closed" : s)); show(t); }}
-              className={`px-3.5 py-1.5 rounded-md text-sm ${t === tab && setup !== "open" ? "font-semibold text-accent bg-accent-soft" : "font-medium text-muted"}`}>
+              className={`px-3 text-[15px] border-b-2 -mb-px ${t === tab && setup !== "open" ? "font-semibold text-ink border-sun" : "font-medium text-muted border-transparent hover:text-ink"}`}>
               {t}
             </button>
           ))}
         </nav>
         <div className="grow" />
-        <span className="font-mono text-xs text-muted">
+        <span className="font-mono text-xs tracking-[0.06em] text-muted">
           {stats ? `${stats.documents} docs · ${stats.chunks.toLocaleString()} chunks` : statsErr !== null ? "stats unavailable" : "—"}
         </span>
       </header>

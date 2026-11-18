@@ -35,7 +35,7 @@ export const primaryButton =
 export const secondaryButton =
   "px-3 py-1.5 text-xs font-semibold text-accent bg-accent-soft border border-line rounded-md disabled:opacity-50 disabled:cursor-not-allowed";
 const dangerButton =
-  "px-3 py-1.5 text-xs font-semibold text-warn bg-[#F6E4DC] rounded-md disabled:opacity-50 disabled:cursor-not-allowed";
+  "px-3 py-1.5 text-xs font-semibold text-warn bg-warn-soft rounded-md disabled:opacity-50 disabled:cursor-not-allowed";
 
 type Action = "connect" | "disconnect";
 
@@ -100,7 +100,7 @@ export function StatusPill({ agent }: { agent: Agent }) {
       ? "bg-accent-soft text-accent"
       : s === "not_connected"
         ? "bg-sunken text-muted"
-        : "bg-[#F6E4DC] text-warn";
+        : "bg-warn-soft text-warn";
   const label = s === "connected" ? "connected" : s === "not_connected" ? "not connected" : s === "stale" ? "needs repair" : "broken";
   return (
     <span className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded whitespace-nowrap shrink-0 ${look}`} data-testid="agent-status" data-state={s}>
@@ -124,7 +124,7 @@ function Paths({ label, paths }: { label: string; paths: string[] }) {
 export function ChangeReport({ outcome, name }: { outcome: Outcome; name: string }) {
   if (outcome.error) {
     return (
-      <div className="rounded-md px-3 py-2 text-sm bg-[#F6E4DC] text-warn flex flex-col gap-1" role="alert" data-testid="agent-error">
+      <div className="rounded-md px-3 py-2 text-sm bg-warn-soft text-warn flex flex-col gap-1" role="alert" data-testid="agent-error">
         <span>{outcome.error}</span>
         {outcome.unparseable && (
           <span className="text-xs">Nothing was written: the file is exactly as it was. Fix it by hand, then try again.</span>
@@ -198,7 +198,7 @@ export function AgentCard({
       aria-busy={locked}
     >
       <div className="flex items-center gap-3">
-        <h3 className="font-serif font-semibold text-lg whitespace-nowrap">{agent.name}</h3>
+        <h3 className="font-display font-semibold text-lg whitespace-nowrap">{agent.name}</h3>
         {agent.detected.version && <span className="font-mono text-xs text-muted truncate min-w-0" title={agent.detected.version}>{agent.detected.version}</span>}
         {highlight && <span className="text-[11px] font-semibold text-accent shrink-0">{highlight}</span>}
         <div className="grow" />
@@ -220,7 +220,7 @@ export function AgentCard({
             onChange={(e) => setInstructions(e.target.checked)}
             disabled={locked}
             aria-label="Also add guidance to AGENTS.md"
-            className="mt-1 accent-[#0E6B58]"
+            className="mt-1 accent-accent"
           />
           <span className="flex flex-col">
             <span>Also add guidance to AGENTS.md</span>
@@ -232,7 +232,7 @@ export function AgentCard({
       )}
       {agent.instructions && <span className="text-xs text-muted">AGENTS.md carries rhebok's guidance block.</span>}
       {confirming ? (
-        <div className="flex items-center gap-2 rounded-md bg-[#F6E4DC] px-3 py-2">
+        <div className="flex items-center gap-2 rounded-md bg-warn-soft px-3 py-2">
           <span className="text-sm text-warn grow">Remove rhebok from {agent.name}? Only rhebok's own entries are removed; everything else in the file stays.</span>
           <button onClick={() => { setConfirming(false); actions.act(agent.id, "disconnect"); }} disabled={locked} className={dangerButton}>
             Disconnect

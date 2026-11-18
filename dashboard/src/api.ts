@@ -317,7 +317,11 @@ export type IndexRun = { pid: number; reindex: boolean; finished: boolean; ok: b
 export const getIndexRun = () => j<{ run: IndexRun | null }>("/api/index");
 
 export const PALETTE = {
-  note: "#2E9E78", session: "#A86FC9", tag: "#CC7A3E", entity: "#4E92CF",
-  memory: "#C2557A", project: "#7A8B99",
-  accent: "#0E6B58", ink: "#16211D", muted: "#657771", line: "#D3DCD8", viewport: "#0E1A16",
+  note: "#F2D6AC", session: "#9FB8CC", tag: "#E56936", entity: "#D4B85A",
+  memory: "#D47A92", project: "#A39C8C",
+  accent: "#983B15", sun: "#E56936", ink: "#2E363C", muted: "#57534A", line: "#D6B88A",
+  viewport: "#2E363C", viewportLine: "#525C62", viewportText: "#F5DAB0",
+};
+export const MEMORY_SHADE: Record<string, string> = {
+  lesson: "#E7A1B0", fact: "#D47A92", episode: "#C46E88",
 };

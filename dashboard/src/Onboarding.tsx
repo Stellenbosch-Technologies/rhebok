@@ -217,14 +217,14 @@ export default function Onboarding({ onSkip, onDone }: { onSkip: () => void; onD
       <div className="max-w-[900px] mx-auto flex flex-col gap-5 py-4">
         <div className="flex items-center gap-4">
           <div className="flex flex-col grow">
-            <h1 className="font-serif font-semibold text-2xl">Set up rhebok</h1>
+            <h1 className="font-display font-semibold text-2xl">Set up rhebok</h1>
             <span className="text-sm text-muted">Nothing is indexed yet. Three steps, and every one can be skipped.</span>
           </div>
           <button onClick={onSkip} className="text-xs font-semibold text-muted underline">Skip setup</button>
         </div>
         <Steps step={step} />
         <section className="bg-surface border border-line rounded-lg p-6 flex flex-col gap-4">
-          <h2 className="font-serif font-semibold text-xl">{STEPS[step]}</h2>
+          <h2 className="font-display font-semibold text-xl">{STEPS[step]}</h2>
           {step === 0 && <Folders onNext={() => setStep(1)} />}
           {step === 1 && <Connect onNext={() => setStep(2)} />}
           {step === 2 && <Index onDone={onDone} />}

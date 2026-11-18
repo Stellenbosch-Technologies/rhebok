@@ -33,7 +33,7 @@ const primary =
 const secondary =
   "px-3 py-1.5 text-xs font-semibold text-accent bg-accent-soft border border-line rounded-md disabled:opacity-50 disabled:cursor-not-allowed";
 const danger =
-  "px-3 py-1.5 text-xs font-semibold text-warn bg-[#F6E4DC] rounded-md disabled:opacity-50 disabled:cursor-not-allowed";
+  "px-3 py-1.5 text-xs font-semibold text-warn bg-warn-soft rounded-md disabled:opacity-50 disabled:cursor-not-allowed";
 
 function Code({ children }: { children: ReactNode }) {
   return <code className="font-mono bg-sunken px-1 rounded text-[12px]">{children}</code>;
@@ -268,7 +268,7 @@ function SurfaceCard({ ctx, surface, title, bench }: { ctx: Ctx; surface: "hook"
             onChange={(e) => ctx.set(thresholdPath, Number(e.target.value))}
             disabled={ctx.locked}
             aria-label={`${thresholdPath} slider`}
-            className="grow accent-[#0E6B58]"
+            className="grow accent-accent"
           />
           <NumberInput ctx={ctx} path={thresholdPath} className="w-[90px]" />
         </div>
@@ -328,11 +328,11 @@ function TestConnection({ ctx }: { ctx: Ctx }) {
         </div>
       )}
       {result && !result.ok && (
-        <div className="rounded-md px-3 py-2 text-sm bg-[#F6E4DC] text-warn" data-testid="embed-test-result">
+        <div className="rounded-md px-3 py-2 text-sm bg-warn-soft text-warn" data-testid="embed-test-result">
           Could not embed through {result.url ?? result.backend}: {result.error ?? "unknown error"}
         </div>
       )}
-      {failure && <div className="rounded-md px-3 py-2 text-sm bg-[#F6E4DC] text-warn">{failure}</div>}
+      {failure && <div className="rounded-md px-3 py-2 text-sm bg-warn-soft text-warn">{failure}</div>}
     </div>
   );
 }
@@ -525,7 +525,7 @@ export function EmbeddingSection({
       </Card>
       <Card title="Model">
         {reindexWarning && (
-          <div className="rounded-md px-3 py-2.5 text-sm bg-[#F6E4DC] text-warn" role="alert" data-testid="reindex-warning">
+          <div className="rounded-md px-3 py-2.5 text-sm bg-warn-soft text-warn" role="alert" data-testid="reindex-warning">
             Changing the embedding model or its dimensions makes the existing index unreadable: every document has to be
             embedded again with <Code>rhebok index --reindex</Code>. You can start that from here after saving.
           </div>

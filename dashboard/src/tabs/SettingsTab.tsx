@@ -281,7 +281,7 @@ export default function SettingsTab({
       <div className="grow flex flex-col min-h-0 min-w-0 gap-3">
         <div ref={pane} className="grow overflow-auto min-h-0 flex flex-col gap-4 pr-1">
           {conflict && (
-            <div className="rounded-md px-4 py-3 text-sm bg-[#F6E4DC] text-warn flex items-center gap-3" role="alert" data-testid="conflict">
+            <div className="rounded-md px-4 py-3 text-sm bg-warn-soft text-warn flex items-center gap-3" role="alert" data-testid="conflict">
               <span className="grow">
                 config.toml changed on disk since this page read it, so nothing was saved. Reload to see the new file and lose your
                 {` ${dirtyCount}`} unsaved change{dirtyCount === 1 ? "" : "s"}, or keep editing: your changes stay and the next save applies
@@ -316,7 +316,7 @@ export default function SettingsTab({
           )}
           {notice && (
             <div
-              className={`rounded-md px-4 py-2.5 text-sm flex flex-col gap-2 ${notice.warn ? "bg-[#F6E4DC] text-warn" : "bg-accent-soft text-accent"}`}
+              className={`rounded-md px-4 py-2.5 text-sm flex flex-col gap-2 ${notice.warn ? "bg-warn-soft text-warn" : "bg-accent-soft text-accent"}`}
               role="status"
               data-testid="settings-notice"
             >
@@ -350,7 +350,7 @@ export default function SettingsTab({
             </ErrorBanner>
           )}
           {state.errors.length > 0 && (
-            <div className="bg-surface border border-[#E8C3B3] rounded-lg px-4 py-3 flex flex-col gap-1.5" data-testid="file-errors">
+            <div className="bg-surface border border-warn-line rounded-lg px-4 py-3 flex flex-col gap-1.5" data-testid="file-errors">
               <span className="text-sm font-semibold text-warn">
                 {state.errors.length} problem{state.errors.length === 1 ? "" : "s"} already in config.toml
               </span>
@@ -371,7 +371,7 @@ export default function SettingsTab({
             </div>
           )}
           <div className="flex items-baseline gap-3">
-            <h2 className="font-serif font-semibold text-xl">{section}</h2>
+            <h2 className="font-display font-semibold text-xl">{section}</h2>
             <span className="text-xs text-muted">Saved changes reach the prompt hook on its next prompt, with no restart.</span>
           </div>
           {section === "Sources" && <SourcesSection ctx={ctx} runner={runner} />}
@@ -392,7 +392,7 @@ export default function SettingsTab({
           <div className="h-2 shrink-0" />
         </div>
         {dirtyCount > 0 && (
-          <div className="shrink-0 bg-surface border border-line rounded-lg px-4 py-3 flex flex-col gap-3 shadow-[0_-4px_16px_rgba(22,33,29,0.08)]" data-testid="save-bar">
+          <div className="shrink-0 bg-surface border border-line rounded-lg px-4 py-3 flex flex-col gap-3 shadow-[0_-4px_16px_rgba(46,54,60,0.14)]" data-testid="save-bar">
             {preview && (
               <div className="flex flex-col gap-1.5 max-h-[240px] overflow-auto" data-testid="diff-preview">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">This will be written to config.toml</span>
