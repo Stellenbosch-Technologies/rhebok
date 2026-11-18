@@ -1,3 +1,4 @@
+pub mod choice;
 pub mod ollama;
 pub use ollama::OllamaEmbedder;
 pub mod openai;

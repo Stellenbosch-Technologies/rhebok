@@ -21,6 +21,7 @@ pub enum PrefixScheme {
     Nomic,
     /// `passage:` / `query:`. E5 and its derivatives.
     E5,
+    Gemma,
     /// No prefixes at all — symmetric models, and the safe default for a model
     /// we do not recognise. Guessing wrong is worse than not guessing.
     None,
@@ -36,6 +37,7 @@ impl PrefixScheme {
             "qwen3" | "qwen3instruct" => Some(PrefixScheme::Qwen3Instruct),
             "nomic" => Some(PrefixScheme::Nomic),
             "e5" => Some(PrefixScheme::E5),
+            "gemma" | "embeddinggemma" => Some(PrefixScheme::Gemma),
             "plain" | "none" => Some(PrefixScheme::None),
             _ => None,
         }
@@ -47,6 +49,8 @@ impl PrefixScheme {
             PrefixScheme::Qwen3Instruct
         } else if m.contains("nomic-embed") {
             PrefixScheme::Nomic
+        } else if m.contains("embeddinggemma") {
+            PrefixScheme::Gemma
         } else if m.contains("e5-") || m.contains("multilingual-e5") {
             PrefixScheme::E5
         } else {
@@ -61,6 +65,7 @@ impl PrefixScheme {
             PrefixScheme::Qwen3Instruct => "qwen3",
             PrefixScheme::Nomic => "nomic",
             PrefixScheme::E5 => "e5",
+            PrefixScheme::Gemma => "gemma",
             PrefixScheme::None => "plain",
         }
     }
@@ -71,6 +76,7 @@ impl PrefixScheme {
             PrefixScheme::Qwen3Instruct | PrefixScheme::None => s.to_string(),
             PrefixScheme::Nomic => format!("search_document: {s}"),
             PrefixScheme::E5 => format!("passage: {s}"),
+            PrefixScheme::Gemma => format!("title: none | text: {s}"),
         }
     }
 
@@ -81,6 +87,7 @@ impl PrefixScheme {
             ),
             PrefixScheme::Nomic => format!("search_query: {s}"),
             PrefixScheme::E5 => format!("query: {s}"),
+            PrefixScheme::Gemma => format!("task: search result | query: {s}"),
             PrefixScheme::None => s.to_string(),
         }
     }
@@ -275,5 +282,25 @@ mod tests {
             toml::from_str("model = \"m\"\ndimensions = 4\nkeep_alive = -1").unwrap();
         let body = embed_request_body(&e.model, &["x".to_string()], &forever.keep_alive);
         assert_eq!(body["keep_alive"], serde_json::json!(-1));
+    }
+
+    #[test]
+    fn embeddinggemma_gets_its_titled_document_and_task_query_format() {
+        for model in [
+            "embeddinggemma-2:270m-bf16-text",
+            "hf.co/google/EmbeddingGemma-2",
+            "embeddinggemma",
+        ] {
+            assert_eq!(
+                PrefixScheme::for_model(model),
+                PrefixScheme::Gemma,
+                "{model}"
+            );
+        }
+        let g = PrefixScheme::Gemma;
+        assert_eq!(g.doc("body"), "title: none | text: body");
+        assert_eq!(g.query("q"), "task: search result | query: q");
+        assert_eq!(g.tag(), "gemma");
+        assert_eq!(PrefixScheme::parse("gemma"), Some(PrefixScheme::Gemma));
     }
 }

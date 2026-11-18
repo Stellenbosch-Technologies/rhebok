@@ -187,6 +187,9 @@ enum Cmd {
         /// Print failures only
         #[arg(long)]
         quiet: bool,
+        /// Embedding model to use: qwen3 (the default) or gemma. Asked on a first interactive install
+        #[arg(long, value_name = "MODEL")]
+        embed_model: Option<String>,
     },
     /// Remove rhebok: the binary, the plugin, the PATH link, and every agent connection
     Uninstall {
@@ -442,6 +445,29 @@ fn confirm_on_stdin(question: &str) -> bool {
         return false;
     }
     matches!(line.trim(), "y" | "Y" | "yes" | "YES")
+}
+
+fn choose_embed_on_stdin() -> &'static rhebok::embed::choice::EmbedChoice {
+    use rhebok::embed::choice::CHOICES;
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        return &CHOICES[0];
+    }
+    eprintln!("? which embedding model should rhebok use?");
+    for (i, c) in CHOICES.iter().enumerate() {
+        eprintln!("  {}) {} ({}): {}", i + 1, c.label, c.size, c.summary);
+    }
+    eprint!("  choose [1] ");
+    let mut line = String::new();
+    if std::io::stdin().read_line(&mut line).is_err() {
+        return &CHOICES[0];
+    }
+    line.trim()
+        .parse::<usize>()
+        .ok()
+        .and_then(|n| CHOICES.get(n.wrapping_sub(1)))
+        .or_else(|| rhebok::embed::choice::find(line.trim()))
+        .unwrap_or(&CHOICES[0])
 }
 
 fn run_agents(json: bool) -> Result<()> {
@@ -1647,7 +1673,20 @@ fn main() -> Result<()> {
         Cmd::Dashboard { port, no_open } => {
             rhebok::dashboard::serve(port, !no_open)?;
         }
-        Cmd::Install { yes, quiet } => {
+        Cmd::Install {
+            yes,
+            quiet,
+            embed_model,
+        } => {
+            let named = match embed_model.as_deref() {
+                Some(id) => Some(rhebok::embed::choice::find(id).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "unknown embedding model `{id}`; choose one of {}",
+                        rhebok::embed::choice::ids()
+                    )
+                })?),
+                None => None,
+            };
             let paths = rhebok::setup::Paths::from_env();
             let agent_env = rhebok::setup::agents::AgentEnv::from_env();
             let migration = rhebok::setup::migrate::migrate(
@@ -1668,6 +1707,27 @@ fn main() -> Result<()> {
             } else {
                 cfg
             };
+            let remote = cfg.embed.remote.is_some() || cfg.embed.remote_error.is_some();
+            let embed = if remote {
+                if named.is_some() {
+                    migration.warnings.push(
+                        "a remote embedding endpoint is configured, so --embed-model was ignored; \
+                         it only chooses the model Ollama serves"
+                            .to_string(),
+                    );
+                }
+                None
+            } else if named.is_some() {
+                named
+            } else if !yes && !quiet && !Config::config_path().is_file() {
+                Some(choose_embed_on_stdin())
+            } else {
+                None
+            };
+            let mut model_cfg = cfg.clone();
+            if let Some(choice) = embed {
+                model_cfg.embed.model = choice.model.to_string();
+            }
             let opts = rhebok::setup::install::InstallOpts {
                 exe: std::env::current_exe()?,
                 version: env!("CARGO_PKG_VERSION").to_string(),
@@ -1676,7 +1736,8 @@ fn main() -> Result<()> {
                 yes,
                 quiet,
                 ollama_url: cfg.embed.ollama_url.clone(),
-                models: rhebok::setup::ollama::ollama_models(&cfg),
+                models: rhebok::setup::ollama::ollama_models(&model_cfg),
+                embed,
                 confirm: confirm_on_stdin,
                 pull: rhebok::setup::ollama::pull,
             };

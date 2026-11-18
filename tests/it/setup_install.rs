@@ -69,6 +69,7 @@ fn fixture(version_printed: &str) -> Fx {
             required: vec!["qwen3-embedding:0.6b".to_string()],
             optional: vec![],
         },
+        embed: None,
         confirm: |_| false,
         pull: |_| Ok(()),
     };
@@ -193,6 +194,7 @@ fn clone_opts(o: &InstallOpts) -> InstallOpts {
         quiet: o.quiet,
         ollama_url: o.ollama_url.clone(),
         models: o.models.clone(),
+        embed: o.embed,
         confirm: o.confirm,
         pull: o.pull,
     }
@@ -584,5 +586,97 @@ fn install_yes_quiet_as_update_runs_it_does_not_pull_the_distill_model() {
                 && w.contains("distill_episodes = false")),
         "{:?}",
         report.warnings
+    );
+}
+
+#[test]
+fn a_first_install_that_chooses_gemma_writes_its_model_and_both_gates() {
+    let fx = fixture("1.2.3");
+    let opts = InstallOpts {
+        embed: Some(&rhebok::embed::choice::GEMMA),
+        ..clone_opts(&fx.opts)
+    };
+    let report = install(&fx.paths, &opts).unwrap();
+    let cfg = rhebok::config::Config::load_from(&fx.opts.config_path);
+    assert_eq!(cfg.embed.model, "embeddinggemma-2:270m-bf16-text");
+    assert_eq!(cfg.embed.dimensions, 512);
+    assert_eq!(cfg.hook.threshold, 0.76);
+    assert_eq!(cfg.mcp.threshold, 0.68);
+    let text = std::fs::read_to_string(&fx.opts.config_path).unwrap();
+    assert!(
+        text.starts_with(rhebok::setup::install::STARTER_CONFIG),
+        "the model goes after the starter, so its commented top-level switches stay top-level: {text}"
+    );
+    let uncommented = text.replace("# index_transcripts = false", "index_transcripts = false");
+    let uncommented: rhebok::config::Config = toml::from_str(&uncommented).unwrap();
+    assert!(!uncommented.index_transcripts, "{text}");
+    assert!(
+        rhebok::config::check::check(&text).is_empty(),
+        "{:?}",
+        rhebok::config::check::check(&text)
+    );
+    assert!(
+        report
+            .lines
+            .iter()
+            .any(|l| l.starts_with("embed:") && l.contains("hook gate 0.76")),
+        "{:?}",
+        report.lines
+    );
+    assert!(
+        !report.warnings.iter().any(|w| w.contains("--reindex")),
+        "a fresh install has no index to rebuild: {:?}",
+        report.warnings
+    );
+}
+
+#[test]
+fn a_first_install_that_keeps_the_default_model_leaves_the_starter_untouched() {
+    let fx = fixture("1.2.3");
+    let opts = InstallOpts {
+        embed: Some(&rhebok::embed::choice::QWEN3),
+        ..clone_opts(&fx.opts)
+    };
+    install(&fx.paths, &opts).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&fx.opts.config_path).unwrap(),
+        rhebok::setup::install::STARTER_CONFIG
+    );
+}
+
+#[test]
+fn choosing_a_different_model_on_reinstall_switches_it_and_says_to_reindex() {
+    let fx = fixture("1.2.3");
+    install(&fx.paths, &fx.opts).unwrap();
+    std::fs::write(
+        &fx.opts.config_path,
+        "sources = [\"/mine\"]\n\n[hook]\nthreshold = 0.68\n",
+    )
+    .unwrap();
+    let opts = InstallOpts {
+        exe: fx.paths.bin.clone(),
+        embed: Some(&rhebok::embed::choice::GEMMA),
+        ..clone_opts(&fx.opts)
+    };
+    let report = install(&fx.paths, &opts).unwrap();
+    let cfg = rhebok::config::Config::load_from(&fx.opts.config_path);
+    assert_eq!(cfg.embed.model, "embeddinggemma-2:270m-bf16-text");
+    assert_eq!(cfg.hook.threshold, 0.76, "the old model's gate is replaced");
+    assert_eq!(cfg.sources, vec![std::path::PathBuf::from("/mine")]);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("rhebok index --reindex")
+                && w.contains("from qwen3-embedding:0.6b to embeddinggemma-2:270m-bf16-text")),
+        "{:?}",
+        report.warnings
+    );
+
+    let again = install(&fx.paths, &opts).unwrap();
+    assert!(
+        !again.warnings.iter().any(|w| w.contains("--reindex")),
+        "choosing the model already configured changes nothing: {:?}",
+        again.warnings
     );
 }

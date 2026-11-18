@@ -70,11 +70,60 @@ pub fn unreachable_for_distillation_only(url: &str, why: &str, optional: &[Strin
 }
 
 pub fn approximate_size(model: &str) -> Option<&'static str> {
+    if let Some(choice) = crate::embed::choice::for_model(model) {
+        return Some(choice.size);
+    }
     match model {
-        "qwen3-embedding:0.6b" => Some("about 640 MB"),
         "qwen3:4b-instruct" | "qwen3:4b" => Some("about 2.5 GB"),
         _ => None,
     }
+}
+
+pub fn version(url: &str) -> Option<String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .ok()?;
+    let v: serde_json::Value = client
+        .get(format!("{}/api/version", url.trim_end_matches('/')))
+        .send()
+        .and_then(|r| r.error_for_status())
+        .ok()?
+        .json()
+        .ok()?;
+    v["version"].as_str().map(str::to_string)
+}
+
+fn too_new_for(running: Option<&str>, model: &str) -> Option<String> {
+    let choice = crate::embed::choice::for_model(model)?;
+    let min = choice.min_ollama?;
+    let running = running?;
+    choice.needs_newer_ollama_than(running).then(|| {
+        format!(
+            "{model} needs Ollama {min} or newer and this one is {running}; upgrade it \
+             (https://ollama.com/download, or `brew upgrade ollama`), restart `ollama serve`, \
+             then run `ollama pull {model}`"
+        )
+    })
+}
+
+fn split_by_ollama_version(url: &str, models: Vec<String>) -> (Vec<String>, Vec<String>) {
+    if !models
+        .iter()
+        .any(|m| crate::embed::choice::for_model(m).is_some_and(|c| c.min_ollama.is_some()))
+    {
+        return (models, Vec::new());
+    }
+    let running = version(url);
+    let mut pullable = Vec::new();
+    let mut refusals = Vec::new();
+    for m in models {
+        match too_new_for(running.as_deref(), &m) {
+            Some(why) => refusals.push(why),
+            None => pullable.push(m),
+        }
+    }
+    (pullable, refusals)
 }
 
 fn with_sizes(models: &[String]) -> String {
@@ -163,6 +212,8 @@ pub fn status_lines(url: &str, models: &OllamaModels) -> Vec<String> {
         .into_iter()
         .partition(|m| models.required.contains(m));
     let mut lines = Vec::new();
+    let (missing_required, refusals) = split_by_ollama_version(url, missing_required);
+    lines.extend(refusals);
     if !missing_required.is_empty() {
         lines.push(format!(
             "reachable, missing model(s): {} — run: {}",
@@ -231,6 +282,8 @@ pub fn preflight(
     let (missing_required, missing_optional): (Vec<String>, Vec<String>) = missing
         .into_iter()
         .partition(|m| models.required.contains(m));
+    let (missing_required, refusals) = split_by_ollama_version(url, missing_required);
+    warnings.extend(refusals);
     if !missing_required.is_empty() {
         if consent.to_pull_required(&format!("pull {}?", with_sizes(&missing_required))) {
             pull_each(&missing_required, pull, &mut lines, &mut warnings);

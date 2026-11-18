@@ -299,7 +299,7 @@ pub struct EmbedConfig {
     #[serde(default = "default_chunk_tokens")]
     pub chunk_tokens: usize,
     /// Override the document/query prefix scheme picked from the model name.
-    /// One of `qwen3`, `nomic`, `e5`, `plain`. Changing it invalidates the index.
+    /// One of `qwen3`, `nomic`, `e5`, `gemma`, `plain`. Changing it invalidates the index.
     #[serde(default)]
     pub prefix_scheme: Option<String>,
     /// Opt-in LLM context blurb per chunk (Task 12).

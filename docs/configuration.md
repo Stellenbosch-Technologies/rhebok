@@ -382,9 +382,18 @@ dimensions    = 512      # truncated from the model's native width, renormalized
 concurrency   = 2        # parallel chunk/embed workers during indexing; default half the cores, 1 to 4
 batch         = 32       # chunks per embedding request
 chunk_tokens  = 512      # target chunk size (approximate: 4 chars/token)
-prefix_scheme = "qwen3"  # qwen3 | nomic | e5 | plain; usually auto-detected
+prefix_scheme = "qwen3"  # qwen3 | nomic | e5 | gemma | plain; usually auto-detected
 keep_alive    = "30m"    # how long Ollama keeps the model resident after a request
 ```
+
+rhebok has presets for two models, `qwen3-embedding:0.6b` (the default) and
+`embeddinggemma-2:270m-bf16-text` (Ollama 0.40 or newer). `rhebok install
+--embed-model qwen3|gemma` and the Model picker in the dashboard's Settings
+set `model`, `dimensions`, both `threshold`s and clear `prefix_scheme` in one
+write. The gates move with the model because each scores on its own scale:
+EmbeddingGemma 2 rates unrelated text around 0.70, so qwen3's 0.66 hook gate
+would let every hit through. Its presets are 0.76 for the hook and 0.68 for
+MCP. Any other Ollama model still works if you set these fields by hand.
 
 Changing `model`, `dimensions`, `chunk_tokens`, or the prefix scheme
 invalidates the index; `rhebok` detects the mismatch and refuses to mix

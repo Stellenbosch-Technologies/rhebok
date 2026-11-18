@@ -442,6 +442,44 @@ function RemoteEndpoint({
   );
 }
 
+function ModelChoice({ ctx }: { ctx: Ctx }) {
+  const choices = ctx.state.embed_models ?? [];
+  const model = valueOf(ctx.state, ctx.pending, "embed.model");
+  const current = choices.find((c) => c.model === model);
+  const choose = (id: string) => {
+    const c = choices.find((x) => x.id === id);
+    if (!c) return;
+    ctx.set("embed.model", c.model);
+    ctx.set("embed.dimensions", c.dimensions);
+    ctx.set("embed.prefix_scheme", null);
+    ctx.set("hook.threshold", c.hook_threshold);
+    ctx.set("mcp.threshold", c.mcp_threshold);
+  };
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="embed-choice">
+      <Label>Model</Label>
+      <select
+        value={current?.id ?? ""}
+        onChange={(e) => choose(e.target.value)}
+        disabled={ctx.locked}
+        aria-label="embed.choice"
+        className={`${inputClass} w-[320px]`}
+      >
+        {!current && <option value="">Custom: {String(model ?? "")}</option>}
+        {choices.map((c) => (
+          <option key={c.id} value={c.id}>{c.label} ({c.size})</option>
+        ))}
+      </select>
+      <div className="text-xs text-muted">
+        {current
+          ? `${current.summary}. Choosing a model also sets its dimensions and both relevance gates (hook ${current.hook_threshold}, MCP ${current.mcp_threshold}), because each model scores on its own scale.`
+          : "A model rhebok has no presets for. Set its dimensions, prefix scheme and both relevance gates yourself."}
+        {current?.min_ollama && ` It needs Ollama ${current.min_ollama} or newer; install checks the version before pulling it.`}
+      </div>
+    </div>
+  );
+}
+
 export function EmbeddingSection({
   ctx,
   onEndpoint,
@@ -492,11 +530,12 @@ export function EmbeddingSection({
             embedded again with <Code>rhebok index --reindex</Code>. You can start that from here after saving.
           </div>
         )}
+        {mode === "ollama" && <ModelChoice ctx={ctx} />}
         {mode === "ollama" && <TextField ctx={ctx} path="embed.ollama_url" label="Ollama URL" />}
         <TextField ctx={ctx} path="embed.model" label="Embedding model"
           hint={mode === "remote" ? "The name the index is stamped with; the endpoint's wire name is set above." : undefined} />
         <NumberField ctx={ctx} path="embed.dimensions" label="Dimensions" />
-        <SelectField ctx={ctx} path="embed.prefix_scheme" label="Prefix scheme" options={["qwen3", "nomic", "e5", "plain"]}
+        <SelectField ctx={ctx} path="embed.prefix_scheme" label="Prefix scheme" options={["qwen3", "nomic", "e5", "gemma", "plain"]}
           optional="detect from the model" />
       </Card>
       <Card title="Throughput">
