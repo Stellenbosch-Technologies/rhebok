@@ -68,7 +68,7 @@ export const tests = {
     };
     while (alive() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 250));
     assert(!alive(), "the index finished within two minutes");
-    const log = readFileSync(join(sandbox.home, ".local/share/rhebok/db.log"), "utf8");
+    const log = readFileSync(join(sandbox.dataDir, "db.log"), "utf8");
     assert(/index/i.test(log), `the child logged to db.log:\n${log.slice(-400)}`);
   },
 

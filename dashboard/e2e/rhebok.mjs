@@ -48,8 +48,14 @@ export class Sandbox {
     );
   }
 
+  get dataHome() {
+    return process.platform === "darwin"
+      ? join(this.home, "Library", "Application Support")
+      : join(this.home, ".local", "share");
+  }
+
   get dataDir() {
-    return join(this.home, ".local", "share", "rhebok");
+    return join(this.dataHome, "rhebok");
   }
 
   placeBinary() {
@@ -68,7 +74,7 @@ export class Sandbox {
       ...process.env,
       HOME: this.home,
       XDG_CONFIG_HOME: join(this.home, ".config"),
-      XDG_DATA_HOME: join(this.home, ".local", "share"),
+      XDG_DATA_HOME: this.dataHome,
       RHEBOK_CONFIG: this.configPath,
       CODEX_HOME: join(this.home, ".codex"),
       PATH: process.env.PATH,
