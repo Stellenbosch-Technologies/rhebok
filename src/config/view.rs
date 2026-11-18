@@ -134,6 +134,7 @@ pub fn view(config_path: &Path) -> Result<Value> {
             "backup.drive_token": set_or_unset(cfg.drive_token_path().exists()),
         },
         "env_overrides": overrides,
+        "embed_models": crate::embed::choice::CHOICES,
         "endpoint": {
             "backend": if cfg.embed.remote.is_some() { "remote" } else { "ollama" },
             "url": pick(URL_VAR),

@@ -173,6 +173,33 @@ export const tests = {
     await page.waitForFunction(() => !document.querySelector("[data-testid=reindex-warning]"));
   },
 
+  "choosing EmbeddingGemma sets the model, its width and both gates in one save": async ({ page, sandbox }) => {
+    sandbox.writeConfig("prefix_scheme = \"qwen3\"\n\n[hook]\nthreshold = 0.68\n");
+    try {
+      await openSettings(page, "Embedding");
+      const picker = await page.waitForSelector('select[aria-label="embed.choice"]');
+      assert((await picker.evaluate((el) => el.value)) === "qwen3", "the default model is preselected");
+      await picker.select("gemma");
+      await page.waitForSelector("[data-testid=reindex-warning]");
+      await waitForText(page, "needs Ollama 0.40.0 or newer");
+      const model = await page.$eval('input[aria-label="embed.model"]', (el) => el.value);
+      assert(model === "embeddinggemma-2:270m-bf16-text", `model field follows the picker: ${model}`);
+      await saveThroughBar(page);
+      await page.waitForFunction(() => !document.querySelector("[data-testid=reindex-warning]"));
+      const { json } = await api(page, "/api/config");
+      const file = json.file;
+      assert(file.embed.model === "embeddinggemma-2:270m-bf16-text", `saved model: ${JSON.stringify(file.embed)}`);
+      assert(file.embed.dimensions === 512, `saved dimensions: ${JSON.stringify(file.embed)}`);
+      assert(!("prefix_scheme" in file.embed), `a stale prefix scheme is cleared: ${JSON.stringify(file.embed)}`);
+      assert(file.hook.threshold === 0.76, `hook gate: ${JSON.stringify(file.hook)}`);
+      assert(file.mcp.threshold === 0.68, `MCP gate: ${JSON.stringify(file.mcp)}`);
+      const text = readFileSync(sandbox.configPath, "utf8");
+      assert(!/0\.7599/.test(text), `gates are written as typed, not as widened floats: ${text}`);
+    } finally {
+      sandbox.writeConfig();
+    }
+  },
+
   "the embedding token is write-only": async ({ page, sandbox }) => {
     sandbox.writeConfig();
     const secret = "sk-e2e-never-shown";

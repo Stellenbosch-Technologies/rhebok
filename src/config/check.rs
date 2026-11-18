@@ -483,7 +483,7 @@ impl Ranges<'_> {
             if crate::embed::ollama::PrefixScheme::parse(scheme).is_none() {
                 self.fail(
                     "embed.prefix_scheme",
-                    format!("`{scheme}` is not one of qwen3, nomic, e5, plain"),
+                    format!("`{scheme}` is not one of qwen3, nomic, e5, gemma, plain"),
                 );
             }
         }

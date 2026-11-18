@@ -156,10 +156,13 @@ program is installed the mod injects nothing and the status line reads
 `rhebok install` does the following:
 
 1. Copies itself into rhebok's folder and puts `rhebok` on your PATH.
-2. Writes a starter config file.
+2. Writes a starter config file. On a first install it asks which embedding
+   model to use: Qwen3-Embedding 0.6B (the default) or EmbeddingGemma 2. See
+   [Choosing the embedding model](#choosing-the-embedding-model).
 3. Registers the rhebok plugin with Claude Code.
 4. Asks before downloading the embedding model (`qwen3-embedding:0.6b`,
-   about 640 MB). Say yes, because rhebok can't work without it.
+   about 640 MB, or `embeddinggemma-2:270m-bf16-text`, about 575 MB). Say
+   yes, because rhebok can't work without it.
 5. Asks, in a separate question, before downloading the session distillation
    model (`qwen3:4b-instruct`, about 2.5 GB). This one is optional; see
    [About the models](#about-the-models).
@@ -177,7 +180,29 @@ It prints what it did. Read the last lines:
 `rhebok install --yes` answers yes to every question, including connecting
 every agent it found, except the optional distillation model: `--yes` never
 downloads it, and prints how to get it instead. So an unattended install
-downloads about 640 MB.
+downloads about 640 MB. It does not ask about the embedding model; it keeps
+the default unless you add `--embed-model gemma`.
+
+### Choosing the embedding model
+
+| | Qwen3-Embedding 0.6B (`qwen3`) | EmbeddingGemma 2 (`gemma`) |
+|---|---|---|
+| Ollama model | `qwen3-embedding:0.6b` | `embeddinggemma-2:270m-bf16-text` |
+| Download | about 640 MB | about 575 MB |
+| Ollama | any recent version | 0.40 or newer |
+| Hook gate / MCP gate | 0.66 / 0.55 | 0.76 / 0.68 |
+
+Both find the same notes: on a 27,000-chunk test corpus their recall at every
+quality tier was within one question of each other. EmbeddingGemma 2 was
+about 10% faster per query and indexed about 28% faster. The two models score
+on different scales, which is why each comes with its own relevance gates.
+
+Choose with `rhebok install --embed-model qwen3` or `--embed-model gemma`, or
+with the Model picker in the dashboard's Settings, under Embedding. Both set
+the model, its dimensions and both gates together. Switching an existing
+install makes its index unreadable, so run `rhebok index --reindex`
+afterwards; on a large index that takes hours. If your Ollama is older than
+0.40, install refuses to download EmbeddingGemma 2 and says how to upgrade.
 
 ## Step 3: Tell rhebok what to search
 
@@ -378,10 +403,11 @@ rhebok turns your notes into searchable vectors with one small model, run
 locally through [Ollama](https://ollama.com):
 
 ```sh
-qwen3-embedding:0.6b      # about 640 MB, required
+qwen3-embedding:0.6b               # about 640 MB, required (the default)
+embeddinggemma-2:270m-bf16-text    # about 575 MB, if you chose it instead
 ```
 
-`rhebok install` downloads it after asking. With `contextual = true` in
+`rhebok install` downloads the one you chose after asking. With `contextual = true` in
 `[embed]`, rhebok also needs the enrichment model named in
 `[embed] enrich_model`, and `rhebok install` downloads that too.
 

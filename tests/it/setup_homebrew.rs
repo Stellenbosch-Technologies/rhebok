@@ -63,6 +63,7 @@ fn homebrew_fixture() -> Fx {
         quiet: true,
         ollama_url: "http://127.0.0.1:1".to_string(),
         models: rhebok::setup::ollama::OllamaModels::default(),
+        embed: None,
         confirm: |_| false,
         pull: |_| Ok(()),
     };

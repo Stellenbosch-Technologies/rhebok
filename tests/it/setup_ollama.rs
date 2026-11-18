@@ -377,3 +377,81 @@ fn status_reports_a_missing_distill_model_as_optional_and_a_missing_embedder_as_
         "{lines:?}"
     );
 }
+
+fn serve_ollama(version: &'static str) -> String {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for s in l.incoming() {
+            let Ok(mut s) = s else { return };
+            let mut buf = [0u8; 4096];
+            let n = s.read(&mut buf).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buf[..n]);
+            let body = if request.starts_with("GET /api/version") {
+                format!(r#"{{"version":"{version}"}}"#)
+            } else {
+                TAGS.to_string()
+            };
+            let _ = write!(
+                s,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+        }
+    });
+    format!("http://{addr}")
+}
+
+fn pull_must_not_run(m: &str) -> anyhow::Result<()> {
+    panic!("pulled {m} on an Ollama too old to run it")
+}
+
+#[test]
+fn embeddinggemma_is_not_pulled_on_an_ollama_too_old_to_run_it() {
+    let url = serve_ollama("0.32.15");
+    let models = required(&["embeddinggemma-2:270m-bf16-text"]);
+    let (lines, warnings) = preflight(
+        &url,
+        &models,
+        &consent(true, false, accept),
+        pull_must_not_run,
+    );
+    assert!(lines.is_empty(), "{lines:?}");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("needs Ollama 0.40.0 or newer and this one is 0.32.15")),
+        "{warnings:?}"
+    );
+    let status = status_lines(&url, &models);
+    assert!(
+        status.iter().any(|l| l.contains("needs Ollama 0.40.0")),
+        "{status:?}"
+    );
+    assert!(
+        !status.iter().any(|l| l.contains("run: ollama pull")),
+        "status must not tell you to pull what this Ollama refuses: {status:?}"
+    );
+}
+
+#[test]
+fn embeddinggemma_is_pulled_on_an_ollama_new_enough_to_run_it() {
+    let _serial = PULLED_TESTS_SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    PULLED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clear();
+    let url = serve_ollama("0.40.16");
+    let models = required(&["embeddinggemma-2:270m-bf16-text"]);
+    let (lines, warnings) = preflight(&url, &models, &consent(true, false, accept), record_pull);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("pulled embeddinggemma-2:270m-bf16-text")),
+        "{lines:?}"
+    );
+}

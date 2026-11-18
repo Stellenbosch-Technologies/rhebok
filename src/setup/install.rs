@@ -13,6 +13,7 @@ pub struct InstallOpts {
     pub quiet: bool,
     pub ollama_url: String,
     pub models: super::ollama::OllamaModels,
+    pub embed: Option<&'static crate::embed::choice::EmbedChoice>,
     pub confirm: fn(&str) -> bool,
     pub pull: fn(&str) -> Result<()>,
 }
@@ -78,14 +79,21 @@ pub fn install(paths: &Paths, opts: &InstallOpts) -> Result<InstallReport> {
         link_onto_path(paths, &mut r);
     }
 
-    if opts.config_path.is_file() {
+    let fresh = !opts.config_path.is_file();
+    if !fresh {
         r.lines
             .push(format!("config:   kept {}", opts.config_path.display()));
     } else {
         if let Some(parent) = opts.config_path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        match std::fs::write(&opts.config_path, STARTER_CONFIG) {
+        let starter = match opts.embed {
+            Some(choice) if choice.model != crate::embed::choice::QWEN3.model => {
+                format!("{STARTER_CONFIG}{}", choice.starter_block())
+            }
+            _ => STARTER_CONFIG.to_string(),
+        };
+        match std::fs::write(&opts.config_path, starter) {
             Ok(()) => r.lines.push(format!(
                 "config:   wrote a starter at {}",
                 opts.config_path.display()
@@ -95,6 +103,10 @@ pub fn install(paths: &Paths, opts: &InstallOpts) -> Result<InstallReport> {
                 opts.config_path.display()
             )),
         }
+    }
+
+    if let Some(choice) = opts.embed {
+        choose_embed_model(&opts.config_path, choice, &mut r);
     }
 
     register(paths, &opts.claude, &mut r);
@@ -121,6 +133,46 @@ pub fn install(paths: &Paths, opts: &InstallOpts) -> Result<InstallReport> {
         opts.version
     ));
     Ok(r)
+}
+
+fn choose_embed_model(
+    config_path: &Path,
+    choice: &crate::embed::choice::EmbedChoice,
+    r: &mut InstallReport,
+) {
+    let chosen = format!(
+        "embed:    {} ({}), hook gate {}, MCP gate {}",
+        choice.label, choice.model, choice.hook_threshold, choice.mcp_threshold
+    );
+    let current = crate::config::Config::load_from(config_path).embed.model;
+    if current == choice.model {
+        r.lines.push(chosen);
+        return;
+    }
+    match crate::config::edit::update(config_path, None, &choice.patch()) {
+        Ok(crate::config::edit::Outcome::Written { .. }) => {
+            r.lines.push(chosen);
+            r.warnings.push(format!(
+                "the embedding model changed from {current} to {}; run `rhebok index --reindex` \
+                 to embed everything again, because the existing index cannot be searched with it",
+                choice.model
+            ));
+        }
+        Ok(crate::config::edit::Outcome::Invalid(errors)) => r.warnings.push(format!(
+            "could not set the embedding model in {}: {}",
+            config_path.display(),
+            errors
+                .iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("; ")
+        )),
+        Ok(crate::config::edit::Outcome::Conflict { .. }) => {}
+        Err(e) => r.warnings.push(format!(
+            "could not set the embedding model in {}: {e:#}",
+            config_path.display()
+        )),
+    }
 }
 
 fn require_the_linked_keg(paths: &Paths, exe: &Path) -> Result<()> {

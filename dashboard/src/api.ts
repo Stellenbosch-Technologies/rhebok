@@ -179,7 +179,7 @@ export type SurfaceSettings = { quality: QualityTier | null; threshold: number; 
 export type EmbedSettings = {
   model: string; dimensions: number; ollama_url: string; keep_alive: number | string;
   concurrency: number; batch: number; chunk_tokens: number;
-  prefix_scheme: "qwen3" | "nomic" | "e5" | "plain" | null;
+  prefix_scheme: "qwen3" | "nomic" | "e5" | "gemma" | "plain" | null;
   contextual: boolean; enrich_model: string;
 };
 export type DecaySettings = { enabled: boolean; grace_days: number; half_life_days: number; floor: number };
@@ -233,6 +233,13 @@ export type ConfigState = {
   secrets: { "embed.token": SecretState; "backup.key": SecretState; "backup.drive_token": SecretState };
   env_overrides: EnvOverride[];
   endpoint: EmbedEndpoint;
+  embed_models: EmbedModelChoice[];
+};
+
+export type EmbedModelChoice = {
+  id: string; label: string; model: string; dimensions: number;
+  hook_threshold: number; mcp_threshold: number; size: string;
+  min_ollama: string | null; summary: string;
 };
 
 /// Keys are dotted paths (`"hook.threshold"`). A null in `set` removes the key,
