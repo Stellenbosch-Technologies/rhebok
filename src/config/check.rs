@@ -576,6 +576,14 @@ impl Ranges<'_> {
         }
     }
 
+    fn ignore(&mut self, cfg: &Config) {
+        for entry in &cfg.ignore {
+            if let Err(why) = crate::ignore_list::Entry::parse(entry) {
+                self.fail("ignore", why);
+            }
+        }
+    }
+
     fn sources(&mut self, cfg: &Config) {
         for source in &cfg.sources {
             let expanded = Config::expand_tilde_path(source);
@@ -625,5 +633,6 @@ fn range_errors(cfg: &Config, unreadable: &[String]) -> Vec<FieldError> {
     ranges.memory(cfg);
     ranges.backup(cfg);
     ranges.sources(cfg);
+    ranges.ignore(cfg);
     ranges.errors
 }

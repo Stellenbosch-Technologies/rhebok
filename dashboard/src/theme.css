@@ -29,7 +29,6 @@
   --font-mono: "IBM Plex Mono", Menlo, monospace;
 }
 body { font-family: var(--font-sans); background: var(--color-ground); color: var(--color-ink); }
-.recharts-wrapper :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offset: 0; }
 .graph-grid {

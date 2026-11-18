@@ -24,12 +24,19 @@ export const tests = {
     await waitForText(page, "New");
   },
 
-  "health shows the document tile": async ({ page, sandbox }) => {
+  "health shows the document count": async ({ page, sandbox }) => {
     await openTab(page, "Health");
-    await waitForText(page, "DOCUMENTS");
-    const text = await page.evaluate(() => document.body.innerText);
+    const tile = await page.waitForSelector("[data-testid=documents]", { timeout: 10_000 });
+    const text = await tile.evaluate((el) => el.innerText);
     const expected = sandbox.corpusDocuments();
-    assert(new RegExp(`DOCUMENTS\\s+${expected}\\b`).test(text), `expected ${expected} documents on Health, got:\n${text.slice(0, 400)}`);
+    assert(Number(text.split("\n")[0].replace(/\D/g, "")) === expected && text.includes("documents"), `expected ${expected} documents on Health, got:\n${text}`);
+  },
+
+  "health opens the memories tab": async ({ page }) => {
+    await openTab(page, "Health");
+    await clickButton(page, "Open Memories", "data-testid='memory-panel'");
+    await waitForText(page, "New");
+    await openTab(page, "Health");
   },
 
   "health lists the install problems of an uninstalled build": async ({ page }) => {

@@ -1,5 +1,24 @@
 export type BenchTier = { tier: string; recall_at_5: number; p50_ms: number; p95_ms: number };
-export type Stats = { documents: number; chunks: number; by_source: Record<string, number>; sessions_by_agent?: Record<string, number>; model: string | null; skipped: string[]; bench: BenchTier[] | null; memory: Record<string, number> };
+export type SkipKind = "settling" | "empty" | "unreadable" | "scanned" | "failed";
+export type Skip = { path: string; kind: SkipKind; detail: string; io?: { kind: string; os_error: number | null } };
+export type IgnorePreview = { error: string | null; matches: number; of: number; sample: string[] };
+export const previewIgnore = (pattern: string) => j<IgnorePreview>(`/api/ignore/preview?pattern=${encodeURIComponent(pattern)}`);
+export type BenchProvenance = { cases: number; documents: number | null; chunks: number | null };
+export type Stats = {
+  documents: number;
+  chunks: number;
+  by_source: Record<string, number>;
+  sessions_by_agent?: Record<string, number>;
+  model: string | null;
+  skipped: Skip[];
+  skipped_ignored?: number;
+  bench: BenchTier[] | null;
+  bench_provenance?: BenchProvenance | null;
+  bench_at?: number | null;
+  tiers?: { hook: number; mcp: number };
+  hook_threshold?: number;
+  memory: Record<string, number>;
+};
 export type Progress = { idle?: boolean; pct?: number; docs_done?: number; docs_total?: number; chunks?: number; eta_s?: number };
 export type UpdateStatus = { pid: number; started_at: number; from: string; to: string | null; phase: string; message: string; done: boolean; ok: boolean | null };
 export type VersionInfo = { installed: string; latest: string | null; url: string | null; checked_at: number | null; error: string | null; no_release: boolean; update_available: string | null; update: UpdateStatus | null };

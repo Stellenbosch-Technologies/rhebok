@@ -158,7 +158,9 @@ impl TranscriptLoader {
             md.push_str(&format!("## {role} (turn {turn})\n\n{}\n\n", text.trim()));
         }
 
-        anyhow::ensure!(!md.trim().is_empty(), "empty transcript");
+        if md.trim().is_empty() {
+            return Err(crate::skip::EmptyTranscript.into());
+        }
 
         let files = mentioned_files(&md);
 

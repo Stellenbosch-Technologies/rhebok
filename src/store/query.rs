@@ -126,7 +126,7 @@ pub struct StatusSnapshot {
     pub documents: i64,
     pub chunks: i64,
     pub model: Option<String>,
-    pub skipped: Vec<String>,
+    pub skipped: Vec<crate::skip::Skip>,
     /// Chunks with no stored embedding — the backlog `backfill_vectors`
     /// drains. A half-embedded index that presents as complete is worse than
     /// the slow synchronous index this exists to replace, so this is always
@@ -467,7 +467,7 @@ impl Store {
                 .get_meta("skipped")
                 .ok()
                 .flatten()
-                .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
+                .map(|j| crate::skip::decode(&j))
                 .unwrap_or_default(),
             vectors_pending: self.count_chunks_without_vectors().unwrap_or(0),
         }

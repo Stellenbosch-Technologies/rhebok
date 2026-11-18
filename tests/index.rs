@@ -724,9 +724,10 @@ fn a_dangling_symlink_is_filtered_by_the_walk_before_the_loader_sees_it() {
     // MEASURED, not assumed: the walk filters the link, so nothing about it
     // reaches the skip record. This assertion is what turns a future change in
     // `ignore` into a failing test rather than a silently vacuous one.
-    let dangling: Vec<&String> = found
+    let dangling: Vec<String> = found
         .skipped
         .iter()
+        .map(|s| s.to_string())
         .filter(|s| s.contains("dangling.md"))
         .collect();
     assert!(

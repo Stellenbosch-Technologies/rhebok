@@ -80,42 +80,22 @@ pub fn extract_wikilinks(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Is this path excluded by `Config::ignore`?
-///
-/// Compared against every path COMPONENT, exactly, case-sensitively. Exact so
-/// `_templates2` is not swept up by `_templates`; case-sensitive because
-/// `Templates` is deliberately not in the default list — a vault may keep real
-/// notes there, and case-folding would silently decide otherwise.
-///
-/// A free function rather than a `MarkdownLoader` method because there are TWO
-/// walkers: `MarkdownLoader::load_all` and `index::discover_stat_first`. Only
-/// the second one indexes the user's corpus; a change to the first alone would
-/// pass its own tests and do nothing.
-pub fn is_ignored(path: &std::path::Path, ignore: &[String]) -> bool {
-    !ignore.is_empty()
-        && path.components().any(|c| {
-            c.as_os_str()
-                .to_str()
-                .is_some_and(|s| ignore.iter().any(|i| i == s))
-        })
-}
-
 pub struct MarkdownLoader {
     root: PathBuf,
-    ignore: Vec<String>,
+    ignore: crate::ignore_list::IgnoreList,
 }
 
 impl MarkdownLoader {
     pub fn new<P: AsRef<Path>>(root: P) -> Self {
         Self {
             root: root.as_ref().to_path_buf(),
-            ignore: Vec::new(),
+            ignore: Default::default(),
         }
     }
 
     pub fn with_ignore(root: impl AsRef<Path>, ignore: &[String]) -> Self {
         let mut l = Self::new(root);
-        l.ignore = ignore.to_vec();
+        l.ignore = crate::ignore_list::IgnoreList::new(ignore);
         l
     }
 
@@ -135,7 +115,7 @@ impl MarkdownLoader {
             if path.extension().and_then(|e| e.to_str()) != Some("md") {
                 continue;
             }
-            if is_ignored(path, &self.ignore) {
+            if self.ignore.matches(path) {
                 continue;
             }
             match Self::load_file(path) {

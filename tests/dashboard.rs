@@ -127,6 +127,94 @@ fn stats_reports_the_real_index_and_unknown_api_paths_404() {
 }
 
 #[test]
+fn stats_says_what_the_last_bench_measured_and_which_tier_each_surface_runs() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    rhebok::bench::write_report(&rhebok::bench::BenchReport {
+        provenance: Some(rhebok::bench::Provenance {
+            golden_sha256: rhebok::bench::golden_sha256("[[case]]\nquery = \"q\"\n"),
+            cases: 41,
+            documents: Some(9),
+            chunks: Some(77),
+            memories: Some(0),
+            no_graph: Some(false),
+            project: None,
+            keep_footprint: Some(false),
+        }),
+        tiers: vec![rhebok::bench::BenchTier {
+            tier: "fast".into(),
+            recall_at_5: 0.5,
+            p50_ms: 40,
+            p95_ms: 90,
+            absent: vec![],
+        }],
+    })
+    .unwrap();
+    let (status, body) = get(addr, "/api/stats");
+    std::fs::remove_file(rhebok::bench::report_path()).unwrap();
+    assert_eq!(status, 200);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["bench"][0]["tier"], "fast");
+    assert_eq!(v["bench_provenance"]["cases"], 41);
+    assert_eq!(v["bench_provenance"]["documents"], 9);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let at = v["bench_at"]
+        .as_u64()
+        .expect("bench_at is the report's mtime");
+    assert!(
+        now.abs_diff(at) < 600,
+        "bench_at {at} is not near now {now}"
+    );
+    assert_eq!(v["tiers"]["hook"], 1);
+    assert_eq!(v["tiers"]["mcp"], 3);
+    assert!(v["hook_threshold"].as_f64().unwrap() > 0.0);
+}
+
+#[test]
+fn skipped_files_carry_their_kind_and_the_ignore_preview_counts_them() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let cfg = rhebok::config::Config::load();
+    let db = rhebok::config::Config::db_path();
+    let skipped = serde_json::json!([
+        { "path": "/h/p/s/subagents/workflows/wf_1/journal.jsonl", "kind": "empty", "detail": "empty transcript" },
+        { "path": "/h/notes/locked.md", "kind": "unreadable", "detail": "reading: denied",
+          "io": { "kind": "PermissionDenied", "os_error": 13 } },
+    ]);
+    let set = |v: &str| {
+        rhebok::store::Store::open(&db, cfg.embed.dimensions)
+            .unwrap()
+            .set_meta("skipped", v)
+            .unwrap()
+    };
+    set(&skipped.to_string());
+    let (_, stats) = get(addr, "/api/stats");
+    let (_, glob) = get(
+        addr,
+        "/api/ignore/preview?pattern=workflows%2F*%2Fjournal.jsonl",
+    );
+    let (_, bad) = get(addr, "/api/ignore/preview?pattern=notes%2Fdrafts");
+    set("[]");
+
+    let stats: serde_json::Value = serde_json::from_str(&stats).unwrap();
+    assert_eq!(stats["skipped"][1]["io"]["os_error"], 13);
+    assert_eq!(stats["skipped"][0]["kind"], "empty");
+    assert_eq!(stats["skipped_ignored"], 0);
+    let glob: serde_json::Value = serde_json::from_str(&glob).unwrap();
+    assert_eq!(glob["matches"], 1);
+    assert_eq!(glob["of"], 2);
+    assert!(glob["error"].is_null());
+    let bad: serde_json::Value = serde_json::from_str(&bad).unwrap();
+    assert!(
+        bad["error"].as_str().unwrap().contains("relative path"),
+        "{bad}"
+    );
+}
+
+#[test]
 fn progress_is_idle_when_no_index_runs() {
     let addr = server_over_temp_corpus();
     let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());

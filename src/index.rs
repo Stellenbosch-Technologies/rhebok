@@ -821,7 +821,7 @@ pub struct Discovered {
     /// them.
     pub deferred: Vec<String>,
     /// Reasons files were not indexed, for `rhebok status`.
-    pub skipped: Vec<String>,
+    pub skipped: Vec<crate::skip::Skip>,
     /// Files a `Config::ignore` entry excluded this run. Reported to the user
     /// because an exclusion nobody can see is indistinguishable from an empty
     /// directory, and this tool's failure mode is silence.
@@ -1306,7 +1306,9 @@ fn consider_into(
             // for the `db.log` the detached `SessionStart` indexer writes,
             // and the returned record for `rhebok status`.
             eprintln!("rhebok: skipping {}: {e}", path.display());
-            mine.found.skipped.push(format!("{}: {e}", path.display()));
+            mine.found
+                .skipped
+                .push(crate::skip::Skip::unreadable(path, &e));
             return;
         }
     };
@@ -1347,14 +1349,15 @@ fn consider_into(
             // `SessionStart` indexer writes into, and the returned
             // record for `rhebok status`. A skip nobody can see is the
             // house failure mode.
-            let line = format!(
-                "{}: still being written ({}s ago), waiting for {}s of quiet",
-                path.display(),
+            let why = format!(
+                "still being written ({}s ago), waiting for {}s of quiet",
                 age.as_secs(),
                 TranscriptLoader::SETTLE.as_secs()
             );
-            eprintln!("rhebok: deferring {line}");
-            mine.found.skipped.push(line);
+            eprintln!("rhebok: deferring {}: {why}", path.display());
+            mine.found
+                .skipped
+                .push(crate::skip::Skip::settling(path, why));
             return;
         }
     }
@@ -1509,8 +1512,10 @@ fn consider_into(
                     mine.fresh.insert(uri.clone(), n);
                 }
             }
-            eprintln!("rhebok: skipping {}: {e}", path.display());
-            mine.found.skipped.push(format!("{}: {e}", path.display()));
+            eprintln!("rhebok: skipping {}: {e:#}", path.display());
+            mine.found
+                .skipped
+                .push(crate::skip::Skip::from_error(path, &e));
         }
     }
 }
@@ -1595,6 +1600,7 @@ pub fn discover_stat_first_at(
     // what costs. Collecting also turns the work into a plain slice, so the
     // pool below is the same shape as `index_documents_with`'s.
     let mut ignored = 0usize;
+    let ignore = crate::ignore_list::IgnoreList::new(&cfg.ignore);
     let mut work: Vec<(std::path::PathBuf, Kind)> = Vec::new();
     // Not `cfg.sources` — see `distinct_roots`. The existence check above
     // still runs against the raw list, so a broken entry still refuses; this
@@ -1606,7 +1612,7 @@ pub fn discover_stat_first_at(
                 continue;
             }
             let p = entry.path();
-            if crate::loaders::markdown::is_ignored(p, &cfg.ignore) {
+            if ignore.matches(p) {
                 ignored += 1;
                 continue;
             }
@@ -1629,6 +1635,10 @@ pub fn discover_stat_first_at(
         for entry in ignore::WalkBuilder::new(transcripts).build().flatten() {
             let p = entry.path();
             if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            if ignore.matches(p) {
+                ignored += 1;
                 continue;
             }
             if let Some(max_age) = max_transcript_age {
@@ -2632,7 +2642,10 @@ mod tests {
         ));
         into.found.unchanged.push("file:///mine-unchanged".into());
         into.found.deferred.push("file:///mine-deferred".into());
-        into.found.skipped.push("mine: skipped".into());
+        into.found.skipped.push(crate::skip::Skip::settling(
+            std::path::Path::new("mine"),
+            "skipped".into(),
+        ));
         into.found
             .ocr_pending
             .push("file:///mine-pending.pdf".into());
@@ -2651,7 +2664,10 @@ mod tests {
             .unchanged
             .push("file:///theirs-unchanged".into());
         other.found.deferred.push("file:///theirs-deferred".into());
-        other.found.skipped.push("theirs: skipped".into());
+        other.found.skipped.push(crate::skip::Skip::settling(
+            std::path::Path::new("theirs"),
+            "skipped".into(),
+        ));
         other
             .found
             .ocr_pending
@@ -2673,7 +2689,14 @@ mod tests {
             into.found.deferred,
             ["file:///mine-deferred", "file:///theirs-deferred"]
         );
-        assert_eq!(into.found.skipped, ["mine: skipped", "theirs: skipped"]);
+        assert_eq!(
+            into.found
+                .skipped
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>(),
+            ["mine: skipped", "theirs: skipped"]
+        );
         assert_eq!(
             into.found.ocr_pending,
             ["file:///mine-pending.pdf", "file:///theirs-pending.pdf"]
@@ -2735,7 +2758,9 @@ mod tests {
             "a path that cannot be canonicalized must be reported, not dropped"
         );
         assert!(
-            mine.found.skipped[0].starts_with(&format!("{}: ", missing.display())),
+            mine.found.skipped[0]
+                .to_string()
+                .starts_with(&format!("{}: ", missing.display())),
             "the record must name the file, in the loader-failure arm's format: {:?}",
             mine.found.skipped[0]
         );

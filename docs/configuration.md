@@ -100,12 +100,30 @@ inferred from an absence.
 ignore = ["_templates"]   # default; set to [] to index everything
 ```
 
-It is matched against every path component, exactly and case-sensitively —
-`_templates2` is a different directory, and `Templates` is not excluded, since
-a vault may keep real notes under that name. **If you keep notes you want to
-search inside a matching directory, empty this list**, and note that a
-previously indexed document under one of these names is removed from the index
-on the next run.
+The list applies to notes and to agent session files. An entry takes one of
+three forms:
+
+- **A name**, such as `_templates`, skips every file or folder with exactly
+  that name, case-sensitively. `_templates2` is a different directory, and
+  `Templates` is not excluded, since a vault may keep real notes under that
+  name.
+- **An absolute path**, such as `~/notes/drafts`, skips that file or folder
+  and everything under it.
+- **A glob**, any entry with `*`, `?`, `[` or `{`, is matched against the
+  whole path. `*` stays inside one folder and `**` crosses folders. A glob
+  with no `/`, such as `*.tmp`, is matched against each name in the path, and
+  a relative glob with a `/`, such as `subagents/workflows/*/journal.jsonl`,
+  matches at any depth.
+
+A relative path such as `notes/drafts` is refused, because it is neither a
+name nor a location. **If you keep notes you want to search inside a matching
+directory, take the entry out**, and note that a previously indexed document
+that an entry matches is removed from the index on the next run.
+
+The dashboard's Health tab lists the files the last index run skipped, with
+the reason and any operating-system error code, and can add an entry for a
+file, a folder or a whole group. It shows how many listed files an entry
+would hide before it is saved.
 
 ## Quality tiers
 
