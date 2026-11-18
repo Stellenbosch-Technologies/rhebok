@@ -22,8 +22,27 @@ pub struct InstalledPlugin {
 }
 
 impl ClaudeCli {
-    pub fn from_path() -> ClaudeCli {
-        ClaudeCli::at(Path::new("claude"))
+    pub fn from_env() -> ClaudeCli {
+        let home = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf());
+        ClaudeCli::first_available(&ClaudeCli::candidates(home.as_deref()))
+    }
+
+    pub fn candidates(home: Option<&Path>) -> Vec<PathBuf> {
+        let where_installers_put_it = [".local/bin/claude", ".claude/local/claude"];
+        std::iter::once(PathBuf::from("claude"))
+            .chain(
+                home.into_iter()
+                    .flat_map(|h| where_installers_put_it.iter().map(move |p| h.join(p))),
+            )
+            .collect()
+    }
+
+    pub fn first_available(candidates: &[PathBuf]) -> ClaudeCli {
+        candidates
+            .iter()
+            .map(|p| ClaudeCli::at(p))
+            .find(ClaudeCli::available)
+            .unwrap_or_else(|| ClaudeCli::at(Path::new("claude")))
     }
 
     pub fn at(program: &Path) -> ClaudeCli {

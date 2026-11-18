@@ -309,6 +309,23 @@ pub fn link_binary(paths: &Paths) -> Result<Option<PathBuf>> {
     Ok(None)
 }
 
+pub fn next_steps(config: &Path, warnings: usize) -> String {
+    let opening = match warnings {
+        0 => "Installed. Two things left, and only you can do them:".to_string(),
+        1 => "Installed, but read the line marked ! above: it names something that is not \
+              set up yet. Then two things are left, and only you can do them:"
+            .to_string(),
+        n => format!(
+            "Installed, but read the {n} lines marked ! above: they name what is not set up \
+             yet. Then two things are left, and only you can do them:"
+        ),
+    };
+    format!(
+        "\n{opening}\n\n  1. add your notes to  sources  in {}\n  2. run  rhebok index\n\nThen restart Claude Code so the plugin loads.",
+        config.display()
+    )
+}
+
 pub fn path_hint(link: &Path) -> Option<String> {
     let dir = link.parent()?;
     let on_path = std::env::var_os("PATH")
@@ -346,8 +363,9 @@ pub fn disconnect_claude_code(paths: &Paths, cli: &ClaudeCli) -> Result<Vec<Stri
 fn register(paths: &Paths, cli: &ClaudeCli, r: &mut InstallReport) {
     if !cli.available() {
         r.warnings.push(
-            "the `claude` command was not found, so the plugin is not registered with Claude Code. \
-             Install Claude Code (https://claude.com/claude-code), then run `rhebok install` again."
+            "Claude Code was not found on PATH, in ~/.local/bin or in ~/.claude/local, so the \
+             plugin is not registered with it. Install Claude Code \
+             (https://claude.com/claude-code), then run `rhebok install` again."
                 .to_string(),
         );
         return;
@@ -727,7 +745,8 @@ pub fn install_checks(
         out.push(InstallCheck {
             name: "claude",
             ok: false,
-            detail: "the `claude` command is not on PATH".into(),
+            detail: "Claude Code was not found on PATH, in ~/.local/bin or in ~/.claude/local"
+                .into(),
         });
     }
 

@@ -580,11 +580,19 @@ fn install_yes_quiet_as_update_runs_it_does_not_pull_the_distill_model() {
     );
     assert!(
         report
+            .lines
+            .iter()
+            .any(|l| l.contains("ollama pull qwen3:4b-instruct")
+                && l.contains("distill_episodes = false")),
+        "{:?}",
+        report.lines
+    );
+    assert!(
+        !report
             .warnings
             .iter()
-            .any(|w| w.contains("ollama pull qwen3:4b-instruct")
-                && w.contains("distill_episodes = false")),
-        "{:?}",
+            .any(|w| w.contains("qwen3:4b-instruct")),
+        "an optional model left unpulled is not a warning: {:?}",
         report.warnings
     );
 }
@@ -679,4 +687,23 @@ fn choosing_a_different_model_on_reinstall_switches_it_and_says_to_reindex() {
         "choosing the model already configured changes nothing: {:?}",
         again.warnings
     );
+}
+
+#[test]
+fn the_closing_summary_points_at_the_warnings_when_there_are_any() {
+    let config = Path::new("/home/someone/.config/rhebok/config.toml");
+    let clean = rhebok::setup::install::next_steps(config, 0);
+    assert!(clean.contains("Installed. Two things left"), "{clean}");
+    assert!(!clean.contains("marked !"), "{clean}");
+
+    let one = rhebok::setup::install::next_steps(config, 1);
+    assert!(one.contains("read the line marked ! above"), "{one}");
+
+    let three = rhebok::setup::install::next_steps(config, 3);
+    assert!(three.contains("read the 3 lines marked ! above"), "{three}");
+
+    for summary in [&clean, &one, &three] {
+        assert!(summary.contains(&config.display().to_string()), "{summary}");
+        assert!(summary.contains("rhebok index"), "{summary}");
+    }
 }

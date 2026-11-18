@@ -1025,7 +1025,7 @@ fn main() -> Result<()> {
             );
             let checks = rhebok::setup::install::install_checks(
                 &paths,
-                &rhebok::setup::claude::ClaudeCli::from_path(),
+                &rhebok::setup::claude::ClaudeCli::from_env(),
                 installed,
                 &std::env::current_exe().unwrap_or_default(),
             );
@@ -1692,7 +1692,7 @@ fn main() -> Result<()> {
             let migration = rhebok::setup::migrate::migrate(
                 &paths,
                 &Config::config_path(),
-                &rhebok::setup::claude::ClaudeCli::from_path(),
+                &rhebok::setup::claude::ClaudeCli::from_env(),
                 &agent_env,
                 &rhebok::setup::migrate::Crontab::system(),
             )?;
@@ -1732,7 +1732,7 @@ fn main() -> Result<()> {
                 exe: std::env::current_exe()?,
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 config_path: Config::config_path(),
-                claude: rhebok::setup::claude::ClaudeCli::from_path(),
+                claude: rhebok::setup::claude::ClaudeCli::from_env(),
                 yes,
                 quiet,
                 ollama_url: cfg.embed.ollama_url.clone(),
@@ -1758,18 +1758,19 @@ fn main() -> Result<()> {
                     println!("{l}");
                 }
             }
-            for w in migration
+            let warnings: Vec<&String> = migration
                 .warnings
                 .iter()
                 .chain(&report.warnings)
                 .chain(&offered.warnings)
-            {
+                .collect();
+            for w in &warnings {
                 eprintln!("! {w}");
             }
             if !quiet {
                 println!(
-                    "\nInstalled. Two things left, and only you can do them:\n\n  1. add your notes to  sources  in {}\n  2. run  rhebok index\n\nThen restart Claude Code so the plugin loads.",
-                    opts.config_path.display()
+                    "{}",
+                    rhebok::setup::install::next_steps(&opts.config_path, warnings.len())
                 );
             }
         }
@@ -1789,7 +1790,7 @@ fn main() -> Result<()> {
             let opts = rhebok::setup::install::UninstallOpts {
                 purge,
                 yes,
-                claude: rhebok::setup::claude::ClaudeCli::from_path(),
+                claude: rhebok::setup::claude::ClaudeCli::from_env(),
                 config_path: Config::config_path(),
                 confirm: confirm_on_stdin,
             };
