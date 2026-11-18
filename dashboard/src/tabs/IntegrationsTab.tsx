@@ -75,7 +75,7 @@ export default function IntegrationsTab({
     <div className="h-full overflow-auto" data-testid="integrations">
       <div className="max-w-[1100px] mx-auto flex flex-col gap-4 pb-6">
         <div className="flex items-baseline gap-3">
-          <h2 className="font-serif font-semibold text-xl">Integrations</h2>
+          <h2 className="font-display font-semibold text-xl">Integrations</h2>
           <span className="text-xs text-muted grow">
             Connecting writes only rhebok's own entry into each agent's config, keeps the original beside it as .rhebok-bak, and never rewrites a file it cannot parse.
           </span>
@@ -114,7 +114,7 @@ export default function IntegrationsTab({
         )}
         <section className="bg-surface border border-line rounded-lg p-5 flex flex-col gap-3" data-testid="other-mcp">
           <div className="flex flex-col gap-1">
-            <h3 className="font-serif font-semibold text-lg">Any other MCP client</h3>
+            <h3 className="font-display font-semibold text-lg">Any other MCP client</h3>
             <span className="text-sm text-muted">
               Paste one of these into the client's MCP config. Both run the installed rhebok binary by its absolute path.
             </span>

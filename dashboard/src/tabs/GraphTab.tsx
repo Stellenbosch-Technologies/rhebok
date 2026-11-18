@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import { AGENT_NAME, describeError, getGraph, getMemories, getReach, Graph, GraphEdge, GraphNode, Memories, PALETTE } from "../api";
+import { AGENT_NAME, describeError, getGraph, getMemories, getReach, Graph, GraphEdge, GraphNode, Memories, MEMORY_SHADE, PALETTE } from "../api";
 import { ErrorBanner } from "../components";
 import { DocumentFacts } from "../DocumentFacts";
 
@@ -8,9 +8,6 @@ const COLOR: Record<string, string> = {
   markdown: PALETTE.note, pdf: PALETTE.note, web: PALETTE.note,
   transcript: PALETTE.session, entity: PALETTE.entity, tag: PALETTE.tag,
   memory: PALETTE.memory, project: PALETTE.project,
-};
-const MEMORY_SHADE: Record<string, string> = {
-  lesson: "#D96E96", fact: "#C2557A", episode: "#9E3F5F",
 };
 const NODE_REL_SIZE = 4;
 const LABEL_ZOOM = 1.5;
@@ -24,21 +21,21 @@ const shortTitle = (t: string) => (t.length > LABEL_CHARS ? `${t.slice(0, LABEL_
 function NoDocuments({ onAddSource, onSetup }: { onAddSource: () => void; onSetup: () => void }) {
   return (
     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-      <div className="max-w-md bg-[#16211DD9] border border-[#2C3A35] rounded-lg px-5 py-4 flex flex-col gap-3 text-sm text-[#93A69F] pointer-events-auto">
-        <span className="font-semibold text-[#DCE9E4]">No documents indexed yet</span>
+      <div className="max-w-md bg-viewport-raised/90 border border-viewport-line rounded-lg px-5 py-4 flex flex-col gap-3 text-sm text-viewport-muted pointer-events-auto">
+        <span className="font-semibold text-viewport-text">No documents indexed yet</span>
         <span>The graph is drawn from the folders rhebok indexes. Add one and index it to see your notes here.</span>
         <div className="flex items-center gap-2">
           <button onClick={onSetup} className="px-4 py-2 bg-accent text-white rounded-md text-sm font-semibold">
             Open guided setup
           </button>
-          <button onClick={onAddSource} className="px-4 py-2 border border-[#2C3A35] text-[#DCE9E4] rounded-md text-sm font-semibold">
+          <button onClick={onAddSource} className="px-4 py-2 border border-viewport-line text-viewport-text rounded-md text-sm font-semibold">
             Add a folder
           </button>
         </div>
         <span className="text-xs">Guided setup picks folders, connects your coding agents and runs the first index.</span>
         <span className="text-xs">
-          Opens Settings › Sources. From a terminal: add it to <code className="font-mono text-[#DCE9E4]">sources</code> in
-          config.toml, then run <code className="font-mono text-[#DCE9E4]">rhebok index</code>.
+          Opens Settings › Sources. From a terminal: add it to <code className="font-mono text-viewport-text">sources</code> in
+          config.toml, then run <code className="font-mono text-viewport-text">rhebok index</code>.
         </span>
       </div>
     </div>
@@ -105,7 +102,7 @@ function MemoryDetails({
       {reachError && (
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-wider text-muted pb-1.5">Reach</div>
-          <div className="text-sm text-[#D98E8E]">{reachError}</div>
+          <div className="text-sm text-warn">{reachError}</div>
         </div>
       )}
       {reach && (
@@ -271,7 +268,7 @@ export default function GraphTab({
     return (
       <div className="grow flex flex-col gap-3 items-center justify-center bg-viewport rounded-lg">
         <ErrorBanner>{err}</ErrorBanner>
-        <button onClick={() => setAttempt((n) => n + 1)} className="text-xs font-semibold text-[#DCE9E4] underline">
+        <button onClick={() => setAttempt((n) => n + 1)} className="text-xs font-semibold text-viewport-text underline">
           Try again
         </button>
       </div>
@@ -280,42 +277,42 @@ export default function GraphTab({
 
   return (
     <div className="flex gap-4 h-full">
-      <div ref={viewportRef} className="grow relative bg-viewport rounded-lg overflow-hidden">
+      <div ref={viewportRef} className="grow relative graph-grid rounded-lg overflow-hidden">
         <button onClick={() => setShowSessions(!showSessions)}
-          className="absolute z-10 top-3 left-3 text-xs text-[#93A69F] bg-[#16211DD9] border border-[#2C3A35] rounded-md px-2.5 py-1.5">
+          className="absolute z-10 top-3 left-3 text-xs text-viewport-muted bg-viewport-raised/90 border border-viewport-line rounded-md px-2.5 py-1.5">
           Sessions {showSessions ? "shown" : `(${hidden} hidden)`}
         </button>
         <ForceGraph2D
           width={size.width}
           height={size.height}
           graphData={data}
-          backgroundColor={PALETTE.viewport}
+          backgroundColor="rgba(0,0,0,0)"
           nodeLabel={(n: any) => n.title}
           nodeRelSize={NODE_REL_SIZE}
           nodeVal={nodeValue}
           nodeColor={(n: any) => (n.memory_kind ? MEMORY_SHADE[n.memory_kind] ?? PALETTE.memory : COLOR[n.kind] ?? PALETTE.note)}
-          linkColor={() => "#2C3A35"}
+          linkColor={() => PALETTE.viewportLine}
           nodeCanvasObjectMode={() => "after"}
           nodeCanvasObject={(n: any, ctx, globalScale) => {
             const r = nodeRadius(n);
             if (highlight.has(n.id) || selected?.id === n.id) {
               ctx.beginPath();
               ctx.arc(n.x, n.y, r + 2, 0, 2 * Math.PI);
-              ctx.strokeStyle = "#DCE9E4";
+              ctx.strokeStyle = PALETTE.sun;
               ctx.lineWidth = 1.5;
               ctx.stroke();
             }
             if (globalScale < LABEL_ZOOM) return;
-            ctx.font = `${11 / globalScale}px sans-serif`;
+            ctx.font = `${11 / globalScale}px "Source Sans 3", sans-serif`;
             ctx.textAlign = "center";
             ctx.textBaseline = "top";
-            ctx.fillStyle = "#DCE9E4";
+            ctx.fillStyle = PALETTE.viewportText;
             ctx.fillText(shortTitle(n.title ?? ""), n.x, n.y + r + 3 / globalScale);
           }}
           onNodeClick={(n: any) => setSelected(graph?.nodes.find((g) => g.id === n.id) ?? null)}
         />
         {graph && documentCount === 0 && <NoDocuments onAddSource={onAddSource} onSetup={onSetup} />}
-        <div className="absolute bottom-3 left-3 flex gap-3.5 text-xs text-[#DCE9E4] bg-[#16211DD9] border border-[#2C3A35] rounded-md px-3 py-2">
+        <div className="absolute bottom-3 left-3 flex gap-3.5 text-xs text-viewport-text bg-viewport-raised/90 border border-viewport-line rounded-md px-3 py-2">
           {(["note", "session", "tag", "entity", "memory", "project"] as const).map((k) => (
             <span key={k} className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full" style={{ background: PALETTE[k] }} />
@@ -342,7 +339,7 @@ export default function GraphTab({
                 shared facts component precisely so a fact is rendered from
                 one source; let it own these. */}
           </div>
-          <div className="font-serif font-semibold text-lg leading-snug">{selected.title}</div>
+          <div className="font-display font-semibold text-lg leading-snug">{selected.title}</div>
           {selected.source_type === "memory" ? (
             <MemoryDetails node={selected} memories={memories} reach={reach} reachError={reachError} reaching={reaching} onReach={loadReach} />
           ) : selected.source_type === "project" ? (

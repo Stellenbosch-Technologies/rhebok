@@ -5,7 +5,7 @@ import React from "react";
 /// for the tabs to disagree about what a failure looks like after a palette
 /// change.
 export function ErrorBanner({ children }: { children: React.ReactNode }) {
-  return <div className="bg-[#F6E4DC] text-warn rounded-md px-4 py-2.5 text-sm">{children}</div>;
+  return <div className="bg-warn-soft text-warn rounded-md px-4 py-2.5 text-sm">{children}</div>;
 }
 
 /// A labelled dashed rule marking where a cut falls inside a column — the gate

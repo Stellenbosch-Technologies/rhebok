@@ -1,6 +1,6 @@
 import { assert, openTab, waitForText } from "../helpers.mjs";
 
-const NOTE_RGB = [0x2e, 0x9e, 0x78];
+const NOTE_RGB = [0xf2, 0xd6, 0xac];
 const TITLES = ["Deploy checklist", "Garden notes", "Sourdough starter", "Ingest service runbook"];
 
 async function search(page, query) {

@@ -30,7 +30,7 @@ const RecallChart = memo(function RecallChart({ bench }: { bench: BenchTier[] })
         <CartesianGrid stroke={PALETTE.line} vertical={false} />
         <XAxis dataKey="tier" tick={AXIS_TICK} axisLine={X_AXIS_LINE} tickLine={false} />
         <YAxis domain={RECALL_DOMAIN} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-        <Bar dataKey="recall_at_5" fill={PALETTE.accent} radius={BAR_RADIUS}>
+        <Bar dataKey="recall_at_5" fill={PALETTE.sun} radius={BAR_RADIUS}>
           <LabelList dataKey="recall_at_5" position="top" className="font-mono" style={RECALL_LABEL_STYLE} formatter={formatRecall} />
         </Bar>
       </BarChart>

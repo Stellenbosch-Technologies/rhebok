@@ -6,16 +6,13 @@ import {
   getReach,
   Memories,
   Memory,
+  MEMORY_SHADE,
   PALETTE,
   saveMemory,
 } from "../api";
 import { ErrorBanner } from "../components";
 
 const KINDS = ["lesson", "fact", "episode"] as const;
-
-const KIND_SHADE: Record<string, string> = {
-  lesson: "#D96E96", fact: "#C2557A", episode: "#9E3F5F",
-};
 
 type Draft = { id: string | null; kind: string; text: string; scope: string; global: boolean; confidence: string };
 
@@ -103,8 +100,8 @@ function savedText(saved: Saved, editedId: string | null): string {
 function KindChip({ kind }: { kind: string }) {
   return (
     <span
-      className="text-[10px] font-semibold uppercase tracking-wider text-white rounded px-1.5 py-0.5 shrink-0"
-      style={{ background: KIND_SHADE[kind] ?? PALETTE.memory }}
+      className="text-[10px] font-semibold uppercase tracking-wider text-ink rounded px-1.5 py-0.5 shrink-0"
+      style={{ background: MEMORY_SHADE[kind] ?? PALETTE.memory }}
     >
       {kind}
     </span>
@@ -447,7 +444,7 @@ export default function MemoriesTab({ onWritten }: { onWritten: () => void }) {
       )}
       {notice && (
         <div
-          className={`rounded-md px-4 py-2 text-sm flex items-start gap-3 ${notice.warn || notice.stale ? "bg-[#F6E4DC] text-warn" : "bg-accent-soft text-accent"}`}
+          className={`rounded-md px-4 py-2 text-sm flex items-start gap-3 ${notice.warn || notice.stale ? "bg-warn-soft text-warn" : "bg-accent-soft text-accent"}`}
         >
           <span className="grow">
             {notice.text}
@@ -526,7 +523,7 @@ export default function MemoriesTab({ onWritten }: { onWritten: () => void }) {
               </button>
             </div>
             {leaving && (
-              <div className="bg-[#F6E4DC] text-warn rounded-md px-3 py-2.5 flex flex-col gap-2">
+              <div className="bg-warn-soft text-warn rounded-md px-3 py-2.5 flex flex-col gap-2">
                 <span className="text-sm">
                   Discard {lost} and {destination}? Nothing is written until you press Save.
                 </span>
@@ -550,7 +547,7 @@ export default function MemoriesTab({ onWritten }: { onWritten: () => void }) {
               </div>
             )}
             {selected && (
-              <div className="font-serif font-semibold text-lg leading-snug">{selected.title}</div>
+              <div className="font-display font-semibold text-lg leading-snug">{selected.title}</div>
             )}
             {selected && (
               <dl className="text-[11px] grid grid-cols-[auto_1fr] gap-x-2 gap-y-1">
@@ -652,14 +649,14 @@ export default function MemoriesTab({ onWritten }: { onWritten: () => void }) {
                 <button
                   onClick={() => setConfirming({ id: selected.id, title: selected.title })}
                   disabled={locked}
-                  className="text-xs font-semibold text-warn bg-[#F6E4DC] rounded-md px-2.5 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="text-xs font-semibold text-warn bg-warn-soft rounded-md px-2.5 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Delete
                 </button>
               )}
             </div>
             {confirming && (
-              <div className="bg-[#F6E4DC] text-warn rounded-md px-3 py-2.5 flex flex-col gap-2">
+              <div className="bg-warn-soft text-warn rounded-md px-3 py-2.5 flex flex-col gap-2">
                 <span className="text-sm">
                   Delete “{confirming.title}” ({confirming.id})? A memory exists nowhere else, so this cannot be undone.
                 </span>
@@ -685,7 +682,7 @@ export default function MemoriesTab({ onWritten }: { onWritten: () => void }) {
             {reachError && (
               <div>
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-muted pb-1.5">Reach</div>
-                <div className="text-sm text-[#D98E8E]">{reachError}</div>
+                <div className="text-sm text-warn">{reachError}</div>
               </div>
             )}
             {reach && (
