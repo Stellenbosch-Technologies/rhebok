@@ -18,30 +18,76 @@ function answer(injector: 'mod' | 'command' | 'off', block: string | null) {
 
 describe('statusFor', () => {
   test('counts hits and time', () => {
-    expect(statusFor(answer('mod', BLOCK))).toBe('rhebok · 1 hit · 42 ms')
+    expect(statusFor(answer('mod', BLOCK))).toBe('1 hit · 42 ms')
   })
   test('says when another injector is set', () => {
-    expect(statusFor(answer('command', null))).toBe('rhebok · prehook command')
+    expect(statusFor(answer('command', null))).toBe('prehook command')
   })
   test('says when nothing cleared the gate', () => {
-    expect(statusFor(answer('mod', null))).toBe('rhebok · nothing above the gate')
+    expect(statusFor(answer('mod', null))).toBe('nothing above the gate')
   })
   test('shows the first note without its prefix', () => {
     const degraded = { ...answer('mod', BLOCK), notes: ['rhebok: retrieval degraded — budget'] }
-    expect(statusFor(degraded)).toBe('rhebok · retrieval degraded — budget')
+    expect(statusFor(degraded)).toBe('retrieval degraded — budget')
   })
   test('names the project', () => {
-    expect(statusFor({ ...answer('mod', BLOCK), project: 'api' })).toBe('rhebok · api · 1 hit · 42 ms')
+    expect(statusFor({ ...answer('mod', BLOCK), project: 'api' })).toBe('api · 1 hit · 42 ms')
   })
   test('says a project had no match rather than that something broke', () => {
-    expect(statusFor({ ...answer('mod', null), project: 'api' })).toBe('rhebok · api · no match')
+    expect(statusFor({ ...answer('mod', null), project: 'api' })).toBe('api · no match')
   })
   test('says when a repo project file is waiting to be trusted', () => {
     const waiting = { ...answer('mod', BLOCK), untrusted_project_file: '/r/.rhebok/project.toml' }
-    expect(statusFor(waiting)).toBe('rhebok · 1 hit · 42 ms · untrusted project file')
+    expect(statusFor(waiting)).toBe('1 hit · 42 ms · untrusted project file')
   })
   test('says when rhebok could not be reached', () => {
-    expect(statusFor(undefined)).toBe('rhebok · unavailable')
+    expect(statusFor(undefined)).toBe('unavailable')
+  })
+})
+
+describe('statusFor with the glyph style', () => {
+  const glyph = (c: ReturnType<typeof answer>) => ({ ...c, status_style: 'glyph' as const })
+  test('marks an injection with a filled dot', () => {
+    expect(statusFor(glyph(answer('mod', BLOCK)))).toBe('● 1 · 42 ms')
+  })
+  test('marks no match with an open dot and keeps the project', () => {
+    expect(statusFor({ ...glyph(answer('mod', null)), project: 'api' })).toBe('○ api · no match')
+  })
+  test('marks a note as a warning', () => {
+    const degraded = { ...glyph(answer('mod', BLOCK)), notes: ['rhebok: retrieval degraded — budget'] }
+    expect(statusFor(degraded)).toBe('▲ retrieval degraded — budget')
+  })
+  test('marks another injector with a dash', () => {
+    expect(statusFor(glyph(answer('off', null)))).toBe('– prehook off')
+  })
+})
+
+describe('statusFor with the words style', () => {
+  const words = (c: ReturnType<typeof answer>) => ({ ...c, status_style: 'words' as const })
+  test('says how many notes it added and from where', () => {
+    expect(statusFor({ ...words(answer('mod', BLOCK)), project: 'api' })).toBe('added 1 note from api')
+  })
+  test('leaves the time out until it is slow', () => {
+    expect(statusFor({ ...words(answer('mod', BLOCK)), elapsed_ms: 999 })).toBe('added 1 note')
+    expect(statusFor({ ...words(answer('mod', BLOCK)), elapsed_ms: 1250 })).toBe('added 1 note · slow, 1.3 s')
+  })
+  test('says nothing was relevant rather than naming the gate', () => {
+    expect(statusFor(words(answer('mod', null)))).toBe('nothing relevant')
+  })
+  test('says who adds context when the mod does not', () => {
+    expect(statusFor(words(answer('command', null)))).toBe('the command hook adds context')
+    expect(statusFor(words(answer('off', null)))).toBe('adding context is off')
+  })
+})
+
+describe('statusFor never repeats the name the host already shows', () => {
+  test('in any style or state', () => {
+    for (const status_style of ['counts', 'glyph', 'words'] as const) {
+      for (const c of [answer('mod', BLOCK), answer('mod', null), answer('command', null), undefined]) {
+        const shown = statusFor(c === undefined ? undefined : { ...c, status_style })
+        expect(shown.startsWith('rhebok')).toBe(false)
+      }
+    }
   })
 })
 

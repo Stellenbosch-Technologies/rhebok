@@ -40,6 +40,8 @@ pub struct Context {
     pub budget_ms: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub injector: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_style: Option<&'static str>,
     pub project: Option<String>,
     pub untrusted_project_file: Option<String>,
 }
@@ -65,10 +67,12 @@ pub fn build_for_prehook(
 ) -> Context {
     let cfg = Config::load();
     let injector = cfg.prehook.injector;
+    let status_style = Some(cfg.prehook.status.as_str());
     if injector != crate::prehook::Injector::Mod {
         return Context {
             skipped: Some(format!("`[prehook] injector` is {}", injector.as_str())),
             injector: Some(injector.as_str()),
+            status_style,
             ..Context::default()
         };
     }
@@ -77,6 +81,7 @@ pub fn build_for_prehook(
     }
     Context {
         injector: Some(injector.as_str()),
+        status_style,
         ..build_with(
             &cfg,
             prompt,
@@ -314,6 +319,7 @@ fn gather(
         elapsed_ms: 0,
         budget_ms: profile.budget_ms,
         injector: None,
+        status_style: None,
         project: None,
         untrusted_project_file: None,
     }

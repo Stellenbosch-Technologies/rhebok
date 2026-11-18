@@ -34,10 +34,31 @@ impl Injector {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StatusStyle {
+    #[default]
+    Counts,
+    Glyph,
+    Words,
+}
+
+impl StatusStyle {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StatusStyle::Counts => "counts",
+            StatusStyle::Glyph => "glyph",
+            StatusStyle::Words => "words",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PrehookConfig {
     #[serde(default)]
     pub injector: Injector,
+    #[serde(default)]
+    pub status: StatusStyle,
 }
 
 fn safe_session(session: &str) -> Option<&str> {

@@ -283,6 +283,12 @@ export function RetrievalSection({ ctx, bench }: { ctx: Ctx; bench: BenchTier[] 
     <>
       <SurfaceCard ctx={ctx} surface="hook" title="Prompt hook" bench={bench} />
       <SurfaceCard ctx={ctx} surface="mcp" title="MCP tool (rhebok_search)" bench={bench} />
+      <Card title="Claude Code">
+        <SelectField ctx={ctx} path="prehook.injector" label="Who adds context" options={["mod", "command", "off"]}
+          hint="mod is the rhebok-prehook mod; command is the classic UserPromptSubmit hook." />
+        <SelectField ctx={ctx} path="prehook.status" label="Status line" options={["counts", "glyph", "words"]}
+          hint={<>counts shows <Code>4 hits · 181 ms</Code>, glyph shows <Code>● 4 · 181 ms</Code>, words shows <Code>added 4 notes</Code>. Takes effect on the next prompt.</>} />
+      </Card>
     </>
   );
 }

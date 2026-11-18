@@ -3,12 +3,15 @@ import type { EngineInterface, Register } from 'claude-code'
 const PLUGIN_ROOT = '${CLAUDE_PLUGIN_ROOT}'
 const BIN = '${CLAUDE_PLUGIN_ROOT}/scripts/rhebok.sh'
 const TIMEOUT_MS = 4000
+const SLOW_MS = 1000
 const TOOL = 'rhebok_context'
 const SERVER = 'rhebok'
 const COMMAND = 'rhebok-prehook'
 const SETTINGS = ['mod', 'command', 'off'] as const
 
 type Setting = (typeof SETTINGS)[number]
+
+type StatusStyle = 'counts' | 'glyph' | 'words'
 
 type Hit = { uri: string; title: string; relevance: number }
 
@@ -19,6 +22,7 @@ type Context = {
   skipped: string | null
   elapsed_ms: number
   injector?: Setting
+  status_style?: StatusStyle
   project?: string | null
   untrusted_project_file?: string | null
 }
@@ -33,27 +37,71 @@ function rhebok($: EngineInterface): string {
   return binaryFor(BIN, () => $.plugin.root)
 }
 
-function outcome(context: Context): string {
-  const note = context.notes[0]
-  if (note !== undefined) return note.replace(/^rhebok: /, '')
-  if (context.skipped !== null) return 'skipped'
-  if (context.block === null) {
-    return context.project ? 'no match' : 'nothing above the gate'
+function hitCount(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`
+}
+
+function firstNote(context: Context): string | undefined {
+  return context.notes[0]?.replace(/^rhebok: /, '')
+}
+
+function counts(context: Context | undefined): string {
+  if (context === undefined) return 'unavailable'
+  if (context.injector !== undefined && context.injector !== 'mod') return `prehook ${context.injector}`
+  const parts: string[] = []
+  if (context.project) parts.push(context.project)
+  const note = firstNote(context)
+  if (note !== undefined) parts.push(note)
+  else if (context.skipped !== null) parts.push('skipped')
+  else if (context.block === null) parts.push(context.project ? 'no match' : 'nothing above the gate')
+  else parts.push(hitCount(context.hits.length, 'hit', 'hits'), `${context.elapsed_ms} ms`)
+  if (context.untrusted_project_file) parts.push('untrusted project file')
+  return parts.join(' · ')
+}
+
+function glyphOutcome(context: Context): [string, string[]] {
+  const note = firstNote(context)
+  if (note !== undefined) return ['▲', [note]]
+  if (context.skipped !== null) return ['○', ['skipped']]
+  if (context.block === null) return ['○', ['no match']]
+  return ['●', [String(context.hits.length), `${context.elapsed_ms} ms`]]
+}
+
+function glyph(context: Context | undefined): string {
+  if (context === undefined) return '▲ unavailable'
+  if (context.injector !== undefined && context.injector !== 'mod') return `– prehook ${context.injector}`
+  const [mark, outcome] = glyphOutcome(context)
+  const parts = [...(context.project ? [context.project] : []), ...outcome]
+  if (context.untrusted_project_file) parts.push('untrusted project file')
+  return `${mark} ${parts.join(' · ')}`
+}
+
+function words(context: Context | undefined): string {
+  if (context === undefined) return 'not available'
+  if (context.injector === 'command') return 'the command hook adds context'
+  if (context.injector === 'off') return 'adding context is off'
+  const from = context.project ? ` from ${context.project}` : ''
+  const note = firstNote(context)
+  let line: string
+  if (note !== undefined) line = note
+  else if (context.skipped !== null) line = 'not searched'
+  else if (context.block === null) line = `nothing relevant${context.project ? ` in ${context.project}` : ''}`
+  else {
+    line = `added ${hitCount(context.hits.length, 'note', 'notes')}${from}`
+    if (context.elapsed_ms >= SLOW_MS) line += ` · slow, ${(context.elapsed_ms / 1000).toFixed(1)} s`
   }
-  const hits = context.hits.length
-  return `${hits} ${hits === 1 ? 'hit' : 'hits'} · ${context.elapsed_ms} ms`
+  return context.untrusted_project_file ? `${line} · project file not trusted` : line
 }
 
 export function statusFor(context: Context | undefined): string {
-  if (context === undefined) return 'rhebok · unavailable'
-  if (context.injector !== undefined && context.injector !== 'mod') {
-    return `rhebok · prehook ${context.injector}`
+  switch (context?.status_style) {
+    case 'glyph':
+      return glyph(context)
+    case 'words':
+      return words(context)
+    default:
+      return counts(context)
   }
-  const parts = ['rhebok']
-  if (context.project) parts.push(context.project)
-  parts.push(outcome(context))
-  if (context.untrusted_project_file) parts.push('untrusted project file')
-  return parts.join(' · ')
 }
 
 async function connectServer($: EngineInterface): Promise<string | undefined> {
@@ -163,7 +211,7 @@ export const register: Register = on => {
         stdin: JSON.stringify({ session_id: session }),
       })
     }
-    $.ui.status(`rhebok · prehook ${wanted}`)
+    $.ui.status(`prehook ${wanted}`)
     return { text: `rhebok prehook injector is now ${wanted}, in every session.` }
   })
 }
