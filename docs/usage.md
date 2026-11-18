@@ -114,6 +114,8 @@ writes a line to `db.log` saying distillation stopped and why. Set
 
 ### Exploring memories
 
+![The Memories tab: every memory with its kind, date and scope, and one lesson open for editing](images/memories.png)
+
 `rhebok dashboard` has a Memories tab that lists every memory with its kind,
 date and scope, filters them, and creates, edits and deletes them. On the
 graph, memories are drawn in their own colours, one per kind, joined to the
@@ -141,6 +143,8 @@ or `[::1]` on its own port, so an SSH tunnel must use the dashboard's port at
 its local end and a reverse proxy must rewrite `Host`; see
 [Security model](security-model.md#the-dashboard).
 
+![The Settings tab on Retrieval: the quality tier, relevance threshold and token budget for the prompt hook and for MCP, each with its default](images/settings.png)
+
 The Settings tab edits `config.toml` without a terminal: sources (with a
 Re-index now button and live progress), retrieval tier, threshold and token
 budget for the hook and for MCP, the embedding backend (local Ollama or a
@@ -151,6 +155,8 @@ you type, a save shows the diff first, and a file edited by hand while the
 page was open is never overwritten. Comments in the file survive a save, and
 the hook picks the change up on its next prompt. Changing the embedding model
 or dimensions offers a full re-index.
+
+![The Integrations tab: a card for each coding agent, with what the connection gives it and the config file it lives in](images/integrations.png)
 
 The Integrations tab has a card for each coding agent rhebok found on this
 machine: its version, whether rhebok is connected (or needs repair, and why),
@@ -163,6 +169,8 @@ Desktop. A config file rhebok cannot parse is refused and left as it was. The
 Codex card has an opt-in checkbox for the `AGENTS.md` guidance block. Agents
 that are not installed are listed under "Not installed", and a last card has
 the JSON and TOML snippets for any other MCP client.
+
+![The Health tab: the installed version, the install checks, the embedding endpoint test, and the index counts](images/health.png)
 
 Health has an Install card with the same checks as `rhebok status`: the
 installed binary, the plugin files, the Claude Code marketplace and
