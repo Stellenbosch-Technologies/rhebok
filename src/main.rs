@@ -436,17 +436,20 @@ fn read_progress(path: &std::path::Path) -> Option<String> {
     ))
 }
 
-fn confirm_on_stdin(question: &str) -> bool {
+fn confirm_on_stdin(question: &str, default_yes: bool) -> bool {
     use std::io::IsTerminal;
     if !std::io::stdin().is_terminal() {
         return false;
     }
-    eprint!("? {question} [y/N] ");
+    eprint!(
+        "? {question} {} ",
+        if default_yes { "[Y/n]" } else { "[y/N]" }
+    );
     let mut line = String::new();
     if std::io::stdin().read_line(&mut line).is_err() {
         return false;
     }
-    matches!(line.trim(), "y" | "Y" | "yes" | "YES")
+    rhebok::setup::answer_is_yes(&line, default_yes)
 }
 
 fn choose_embed_on_stdin() -> rhebok::embed::source::ModelSource {

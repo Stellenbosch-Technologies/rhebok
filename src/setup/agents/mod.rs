@@ -403,7 +403,7 @@ pub fn offer_after_install(
     env: &AgentEnv,
     yes: bool,
     quiet: bool,
-    confirm: fn(&str) -> bool,
+    confirm: fn(&str, bool) -> bool,
 ) -> AgentsReport {
     let mut r = AgentsReport::default();
     for agent in all().into_iter().filter(|a| a.id() != claude_code::ID) {
@@ -438,10 +438,10 @@ pub fn offer_after_install(
                 !quiet
                     && agent.detect(env).installed
                     && (yes
-                        || confirm(&format!(
-                            "connect rhebok to {} as well?",
-                            agent.display_name()
-                        )))
+                        || confirm(
+                            &format!("connect rhebok to {} as well?", agent.display_name()),
+                            false,
+                        ))
             }
         };
         if !wanted {

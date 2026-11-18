@@ -70,7 +70,7 @@ fn fixture(version_printed: &str) -> Fx {
             optional: vec![],
         },
         embed: None,
-        confirm: |_| false,
+        confirm: |_, _| false,
         pull: |_| Ok(()),
     };
     Fx {
@@ -360,7 +360,7 @@ fn unopts(fx: &Fx, purge: bool) -> UninstallOpts {
         yes: true,
         claude: fx.opts.claude.clone(),
         config_path: fx.opts.config_path.clone(),
-        confirm: |_| false,
+        confirm: |_, _| false,
     }
 }
 
@@ -565,7 +565,7 @@ fn install_yes_quiet_as_update_runs_it_does_not_pull_the_distill_model() {
             required: vec!["qwen3-embedding:0.6b".to_string()],
             optional: vec!["qwen3:4b-instruct".to_string()],
         },
-        confirm: |q| panic!("install --yes --quiet asked: {q}"),
+        confirm: |q, _| panic!("install --yes --quiet asked: {q}"),
         pull: |m| {
             PULLED_BY_UPDATE.lock().unwrap().push(m.to_string());
             Ok(())

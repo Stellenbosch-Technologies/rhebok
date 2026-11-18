@@ -243,16 +243,16 @@ fn reachable_with(url: &str, required: &[String]) -> String {
 pub struct Consent {
     pub yes: bool,
     pub quiet: bool,
-    pub confirm: fn(&str) -> bool,
+    pub confirm: fn(&str, bool) -> bool,
 }
 
 impl Consent {
     fn to_pull_required(&self, question: &str) -> bool {
-        self.yes || (self.confirm)(question)
+        self.yes || (self.confirm)(question, true)
     }
 
     fn to_pull_optional(&self, question: &str) -> bool {
-        !self.yes && !self.quiet && (self.confirm)(question)
+        !self.yes && !self.quiet && (self.confirm)(question, false)
     }
 }
 
