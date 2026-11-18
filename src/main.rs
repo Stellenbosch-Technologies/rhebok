@@ -1011,7 +1011,7 @@ fn main() -> Result<()> {
                     skipped: Vec::new(),
                     vectors_pending: 0,
                 });
-            let skipped = snap.skipped;
+            let (skipped, skipped_ignored) = rhebok::skip::split_ignored(snap.skipped, &cfg.ignore);
             let paths = rhebok::setup::Paths::from_env();
             let installed = env!("CARGO_PKG_VERSION");
             println!(
@@ -1203,8 +1203,10 @@ fn main() -> Result<()> {
             // The last run's skips. Without this the only report was an
             // `eprintln!` from a process whose stderr goes to a log nobody
             // opens, so a scanned PDF vanished from search with no explanation.
-            if skipped.is_empty() {
+            if skipped.is_empty() && skipped_ignored == 0 {
                 println!("skipped:    none");
+            } else if skipped.is_empty() {
+                println!("skipped:    none shown, {skipped_ignored} matched by `ignore`");
             } else {
                 println!("skipped:    {} (not indexed)", skipped.len());
                 for line in skipped.iter().take(10) {

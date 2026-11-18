@@ -295,7 +295,8 @@ fn a_live_rollout_is_deferred_and_kept_live_and_a_settled_one_is_read() {
         found
             .skipped
             .iter()
-            .any(|s| s.contains(&live.display().to_string()) && s.contains("still being written")),
+            .any(|s| s.path.contains(&live.display().to_string())
+                && s.detail.contains("still being written")),
         "{:?}",
         found.skipped
     );

@@ -177,8 +177,8 @@ export function SourcesSection({ ctx, runner }: { ctx: Ctx; runner: IndexRunner 
             itemErrors={sourceErrors}
           />
         </Shell>
-        <Shell ctx={ctx} path="ignore" label="Ignore globs" hint="Matched against paths inside each source.">
-          <ListEditor ctx={ctx} path="ignore" placeholder="**/node_modules/**" addLabel="Add glob" />
+        <Shell ctx={ctx} path="ignore" label="Ignore list" hint="Skipped in notes and sessions. A name skips any file or folder with that name, a path skips it and everything under it, and a glob such as *.tmp matches paths.">
+          <ListEditor ctx={ctx} path="ignore" placeholder="_templates, ~/notes/drafts or *.tmp" addLabel="Add entry" />
         </Shell>
       </Card>
       <Card title="Agent sessions">

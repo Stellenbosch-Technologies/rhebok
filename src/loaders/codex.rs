@@ -55,7 +55,9 @@ impl CodexSessionLoader {
             read_line(&mut session, &v);
         }
         let md = session.markdown();
-        anyhow::ensure!(!md.trim().is_empty(), "empty transcript");
+        if md.trim().is_empty() {
+            return Err(crate::skip::EmptyTranscript.into());
+        }
 
         let id = if session.id.is_empty() {
             path.file_stem()

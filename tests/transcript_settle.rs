@@ -215,9 +215,10 @@ fn a_live_transcript_is_deferred_reported_and_kept_live() {
     assert_eq!(found.deferred, vec![uri_of(&live)]);
 
     // Reported, not silent. `rhebok status` renders exactly these strings.
-    let said: Vec<&String> = found
+    let said: Vec<String> = found
         .skipped
         .iter()
+        .map(|s| s.to_string())
         .filter(|s| s.contains("ccc.jsonl"))
         .collect();
     assert_eq!(said.len(), 1, "exactly one skip line: {:?}", found.skipped);
@@ -429,7 +430,10 @@ fn a_from_scratch_run_reads_a_live_transcript_rather_than_losing_it() {
         "a file that was read must be fingerprinted, or the next run re-reads it"
     );
     assert!(
-        !rebuilding.skipped.iter().any(|s| s.contains("live.jsonl")),
+        !rebuilding
+            .skipped
+            .iter()
+            .any(|s| s.path.contains("live.jsonl")),
         "and nothing may be reported as skipped: {:?}",
         rebuilding.skipped
     );
@@ -685,4 +689,46 @@ fn codex_sessions_are_found_under_codex_home_and_settle_the_same_way() {
     assert!(read.contains(&codex_uri(&settled).as_str()), "{read:?}");
     assert_eq!(found.deferred, vec![codex_uri(&live)]);
     assert!(found.live_uris().contains(&codex_uri(&live)));
+}
+
+#[test]
+fn the_ignore_list_reaches_session_transcripts_and_an_empty_one_is_typed() {
+    let home = FakeHome::new();
+    let notes = tempfile::tempdir().unwrap();
+    std::fs::write(notes.path().join("note.md"), "# Pooling\n\nPgBouncer.\n").unwrap();
+    let session = home.projects().join("aaa.jsonl");
+    write_transcript(&session, 4);
+    let journal_dir = home.projects().join("aaa/subagents/workflows/wf_1");
+    std::fs::create_dir_all(&journal_dir).unwrap();
+    let journal = journal_dir.join("journal.jsonl");
+    std::fs::write(&journal, "").unwrap();
+    for p in [&session, &journal] {
+        aged(p, Duration::from_secs(3600));
+    }
+
+    let (found, _) =
+        discover_stat_first(&config(notes.path()), &HashMap::new(), Deferral::Allowed).unwrap();
+    let journal_skip = found
+        .skipped
+        .iter()
+        .find(|s| s.path.ends_with("journal.jsonl"))
+        .unwrap_or_else(|| panic!("the empty journal must be reported: {:?}", found.skipped));
+    assert_eq!(journal_skip.kind, rhebok::skip::SkipKind::Empty);
+
+    let ignoring = Config {
+        ignore: vec!["workflows/*/journal.jsonl".to_string()],
+        ..config(notes.path())
+    };
+    let (found, _) = discover_stat_first(&ignoring, &HashMap::new(), Deferral::Allowed).unwrap();
+    assert_eq!(found.ignored, 1, "the journal is counted as ignored");
+    assert!(
+        found
+            .skipped
+            .iter()
+            .all(|s| !s.path.ends_with("journal.jsonl")),
+        "an ignored session is not read, so it cannot be skipped: {:?}",
+        found.skipped
+    );
+    let read: Vec<&str> = found.docs.iter().map(|d| d.uri.as_str()).collect();
+    assert!(read.contains(&uri_of(&session).as_str()), "{read:?}");
 }

@@ -148,7 +148,18 @@ export default function App() {
           <div className={tab === "Health" ? "h-full" : "hidden"}>
             {/* `active` stops the 2s progress poll while the tab is hidden —
                 staying mounted must not mean polling forever in the background. */}
-            <HealthTab stats={stats} err={statsErr} active={tab === "Health"} onOpenSetting={openSetting} />
+            <HealthTab
+              stats={stats}
+              err={statsErr}
+              active={tab === "Health"}
+              onOpenSetting={openSetting}
+              onOpenMemories={() => show("Memories")}
+              onStatsChanged={refreshStats}
+              onIndexed={() => {
+                refreshStats();
+                setIndexRuns((n) => n + 1);
+              }}
+            />
           </div>
         )}
         {seen.has("Settings") && (

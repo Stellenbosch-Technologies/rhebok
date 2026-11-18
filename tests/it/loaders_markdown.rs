@@ -188,8 +188,11 @@ fn the_vault_decision_template_still_parses_and_keeps_its_tags() {
     assert_eq!(d.meta["id"], "ADR-000");
 }
 
-use rhebok::loaders::markdown::is_ignored;
 use std::path::Path;
+
+fn is_ignored(path: &Path, ignore: &[String]) -> bool {
+    rhebok::ignore_list::IgnoreList::new(ignore).matches(path)
+}
 
 /// Decision 5. Matched against EVERY path component, not just the parent, so a
 /// nested `notes/_templates/x.md` is excluded too. An empty list excludes

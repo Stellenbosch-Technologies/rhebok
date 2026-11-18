@@ -287,6 +287,7 @@ fn handle(mut stream: TcpStream, source: &ConfigSource, agents: Option<&AgentEnv
         "/api/search" => json_result(&mut stream, search(&source.current(), query)),
         "/api/memories" => json_result(&mut stream, memories(&source.current())),
         "/api/memory/reach" => json_result(&mut stream, memory_reach(&source.current(), query)),
+        "/api/ignore/preview" => json_result(&mut stream, ignore_preview(&source.current(), query)),
         "/api/config" => json_result(&mut stream, crate::config::view::view(&source.path())),
         "/api/index" => json_status(&mut stream, "200 OK", index_run()),
         "/api/install" => json_status(
@@ -860,19 +861,70 @@ fn stats(cfg: &Config) -> Result<serde_json::Value> {
             store.counts_sessions_by_agent().unwrap_or_default(),
         )
     };
+    let (skipped, skipped_ignored) = crate::skip::split_ignored(snap.skipped, &cfg.ignore);
+    let report_path = crate::bench::report_path();
+    let report = crate::bench::read_report_at(&report_path);
+    let bench_at = std::fs::metadata(&report_path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs());
     Ok(serde_json::json!({
         "documents": snap.documents,
         "chunks": snap.chunks,
         "by_source": by_source,
         "sessions_by_agent": sessions_by_agent,
         "model": snap.model,
-        "skipped": snap.skipped,
-        "bench": crate::bench::read_report(),
+        "skipped": skipped,
+        "skipped_ignored": skipped_ignored,
+        "bench": report.as_ref().map(|r| &r.tiers),
+        "bench_provenance": report.as_ref().and_then(|r| r.provenance.as_ref()),
+        "bench_at": bench_at,
+        "tiers": {
+            "hook": cfg.quality_for(crate::config::Surface::Hook),
+            "mcp": cfg.quality_for(crate::config::Surface::Mcp),
+        },
+        "hook_threshold": cfg.hook.threshold,
         "memory": crate::memory::counts_at(&crate::memory::default_root())
             .unwrap_or_default()
             .into_iter()
             .map(|(k, n)| (k.as_str().to_string(), n))
             .collect::<std::collections::BTreeMap<String, usize>>(),
+    }))
+}
+
+fn ignore_preview(cfg: &Config, raw_query: &str) -> Result<serde_json::Value> {
+    let pattern = raw_query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(k, _)| *k == "pattern")
+        .map(|(_, v)| url_decode(v))
+        .unwrap_or_default();
+    let entry = match crate::ignore_list::Entry::parse(&pattern) {
+        Ok(entry) => entry,
+        Err(why) => {
+            return Ok(serde_json::json!({ "error": why, "matches": 0, "of": 0, "sample": [] }))
+        }
+    };
+    let db = Config::db_path();
+    let skipped = if no_index_yet(&db) {
+        Vec::new()
+    } else {
+        crate::store::Store::open_existing(&db, cfg.embed.dimensions)?
+            .status_snapshot()
+            .skipped
+    };
+    let (shown, _) = crate::skip::split_ignored(skipped, &cfg.ignore);
+    let matched: Vec<&str> = shown
+        .iter()
+        .filter(|s| entry.matches(std::path::Path::new(&s.path)))
+        .map(|s| s.path.as_str())
+        .collect();
+    Ok(serde_json::json!({
+        "error": null,
+        "matches": matched.len(),
+        "of": shown.len(),
+        "sample": matched.iter().take(5).collect::<Vec<_>>(),
     }))
 }
 

@@ -80,14 +80,11 @@ export const tests = {
     assert(new Set(runbook).size > 1, `the runbook's chunks are indistinguishable: ${JSON.stringify(runbook)}`);
   },
 
-  "the latency card says how to populate it": async ({ page }) => {
+  "the retrieval card says how to populate it": async ({ page }) => {
     await openTab(page, "Health");
-    await waitForText(page, "Latency p50");
-    const text = await page.evaluate(() => {
-      const label = [...document.querySelectorAll("span")].find((s) => s.textContent === "Latency p50");
-      return label.parentElement.innerText;
-    });
-    assert(text.includes("rhebok bench"), `latency card has no empty state:\n${text}`);
+    const card = await page.waitForSelector("[data-testid=retrieval-panel]", { timeout: 10_000 });
+    const text = await card.evaluate((el) => el.innerText);
+    assert(text.includes("rhebok bench"), `retrieval card has no empty state:\n${text}`);
   },
 
   "hovering a graph node names it": async ({ page }) => {
