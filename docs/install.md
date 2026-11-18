@@ -149,7 +149,7 @@ never run twice.
 That plugin carries the `rhebok-prehook` mod too, and the mod finds the
 program the same way the hooks do, from the plugin's own folder. Until the
 program is installed the mod injects nothing and the status line reads
-`rhebok · unavailable`.
+`unavailable` after the plugin name.
 
 ## Step 2: Answer the installer's questions
 

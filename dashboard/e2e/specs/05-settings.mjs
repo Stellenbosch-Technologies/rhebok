@@ -83,6 +83,19 @@ export const tests = {
     assert(checked.startsWith("balanced"), `the reloaded form shows the saved tier, got ${checked}`);
   },
 
+  "the claude code status line style is chosen and saved": async ({ page, sandbox }) => {
+    sandbox.writeConfig();
+    await openSettings(page, "Retrieval");
+    const shown = await page.$eval('select[aria-label="prehook.status"]', (el) => el.value);
+    assert(shown === "counts", `the form shows the shipped style, got ${shown}`);
+    await page.select('select[aria-label="prehook.status"]', "words");
+    await saveThroughBar(page);
+    await page.waitForSelector("[data-testid=settings-notice]");
+    const { json } = await api(page, "/api/config");
+    assert(json.effective.prehook.status === "words", `style on disk: ${JSON.stringify(json.effective.prehook)}`);
+    assert(/\[prehook\][\s\S]*status = "words"/.test(readFileSync(sandbox.configPath, "utf8")), "config.toml carries the style");
+  },
+
   "an out-of-range value is flagged inline and cannot be saved": async ({ page, sandbox }) => {
     sandbox.writeConfig();
     const before = readFileSync(sandbox.configPath, "utf8");

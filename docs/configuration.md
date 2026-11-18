@@ -154,14 +154,15 @@ command hook. One setting picks which one does it:
 ```toml
 [prehook]
 injector = "mod"      # "mod" (the default), "command" or "off"
+status = "counts"     # "counts" (the default), "glyph" or "words"
 ```
 
 - `mod`: the mod injects. It asks the running `rhebok mcp` server, which keeps
   the index open, so a prompt skips the process start and index open the
-  command hook pays every time. The status line shows what it found, for
-  example `rhebok · 2 hits · 94 ms`. In any session where the mod is not
-  running (an older Claude Code, or the mod failed to load), the command hook
-  injects instead, so you never silently get nothing.
+  command hook pays every time. The status line shows what it found after
+  the plugin name, for example `2 hits · 94 ms`. In any session where the
+  mod is not running (an older Claude Code, or the mod failed to load), the
+  command hook injects instead, so you never silently get nothing.
 - `command`: the classic command hook injects, as before the mod existed.
   This is how to switch the mod off.
 - `off`: nothing is injected. `rhebok search` and the MCP tools still work.
@@ -172,6 +173,22 @@ Code. It applies to every open session from the next prompt; there is no
 restart. `rhebok status` prints the current choice and `rhebok doctor` warns
 when more than one plugin injects context, including an older plugin from
 rhebok's former names (br8n, brain), which searches every prompt twice.
+
+`status` picks how the mod's status line reads. Claude Code already shows
+the plugin name in front of it, so none of the three repeat it.
+
+| Style    | Notes added           | Nothing relevant         | rhebok cannot answer |
+| -------- | --------------------- | ------------------------ | -------------------- |
+| `counts` | `4 hits · 181 ms`     | `nothing above the gate` | `unavailable`        |
+| `glyph`  | `● 4 · 181 ms`        | `○ no match`             | `▲ unavailable`      |
+| `words`  | `added 4 notes`       | `nothing relevant`       | `not available`      |
+
+`words` adds the time only when a prompt took a second or more, as in
+`added 4 notes · slow, 1.3 s`. In a project, `counts` and `glyph` put the
+project's name first (`api · 4 hits · 181 ms`) and `words` puts it last
+(`added 4 notes from api`). Change it with `rhebok config set prehook.status
+words` or in the dashboard under Settings, Retrieval, Claude Code. Like
+`injector`, it applies from the next prompt.
 
 `rhebok context --json` prints what would be injected for a prompt on
 stdin, which is the quickest way to see why something was or was not

@@ -161,6 +161,23 @@ fn the_prehook_reads_the_injector_fresh_on_every_call() {
     assert_eq!(prehook_json(&s, "sess-3")["injector"], "off");
 }
 
+#[test]
+fn the_prehook_carries_the_status_style_it_is_set_to_whichever_injector_runs() {
+    let s = indexed(None);
+    assert_eq!(prehook_json(&s, "sess-4")["status_style"], "counts");
+    let text = std::fs::read_to_string(&s.cfg).unwrap();
+    for (injector, style) in [("mod", "words"), ("off", "glyph")] {
+        std::fs::write(
+            &s.cfg,
+            format!("[prehook]\ninjector = \"{injector}\"\nstatus = \"{style}\"\n\n{text}"),
+        )
+        .unwrap();
+        let v = prehook_json(&s, "sess-4");
+        assert_eq!(v["injector"], injector, "{v}");
+        assert_eq!(v["status_style"], style, "{v}");
+    }
+}
+
 fn write(path: &Path, text: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, text).unwrap();
