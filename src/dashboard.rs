@@ -326,6 +326,8 @@ fn content_type_for(path: &str) -> &'static str {
         Some("js") => "text/javascript",
         Some("css") => "text/css",
         Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("webp") => "image/webp",
         Some("woff2") => "font/woff2",
         Some("woff") => "font/woff",
         Some("txt") => "text/plain; charset=utf-8",
@@ -1515,6 +1517,8 @@ mod tests {
         assert_eq!(super::content_type_for("bundle.js"), "text/javascript");
         assert_eq!(super::content_type_for("style.css"), "text/css");
         assert_eq!(super::content_type_for("icon.svg"), "image/svg+xml");
+        assert_eq!(super::content_type_for("icon.png"), "image/png");
+        assert_eq!(super::content_type_for("icon.webp"), "image/webp");
         assert_eq!(super::content_type_for("font.woff2"), "font/woff2");
         assert_eq!(super::content_type_for("font.woff"), "font/woff");
         assert_eq!(

@@ -92,7 +92,7 @@ export function IndexStatus({ runner }: { runner: IndexRunner }) {
       </div>
     );
   return (
-    <div className="rounded-md px-3 py-2 text-sm bg-[#F6E4DC] text-warn" role="alert">
+    <div className="rounded-md px-3 py-2 text-sm bg-warn-soft text-warn" role="alert">
       {s.reason}
     </div>
   );

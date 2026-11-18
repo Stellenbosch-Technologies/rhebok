@@ -1,25 +1,41 @@
-@import "@fontsource/ibm-plex-sans/400.css";
-@import "@fontsource/ibm-plex-sans/500.css";
-@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/source-sans-3/400.css";
+@import "@fontsource/source-sans-3/500.css";
+@import "@fontsource/source-sans-3/600.css";
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "@fontsource/ibm-plex-mono/500.css";
-@import "@fontsource/ibm-plex-serif/600.css";
 @import "tailwindcss";
 @source not "../dist";
 @theme {
-  --color-ground: #F6F8F7;
-  --color-surface: #FFFFFF;
-  --color-sunken: #EDF1EF;
-  --color-ink: #16211D;
-  --color-muted: #657771;
-  --color-line: #D3DCD8;
-  --color-accent: #0E6B58;
-  --color-accent-soft: #DCEDE7;
-  --color-warn: #A8492A;
-  --color-viewport: #0E1A16;
-  --font-serif: "IBM Plex Serif", Georgia, serif;
-  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --color-ground: #F7F1E7;
+  --color-surface: #FDFAF4;
+  --color-sunken: #EFE6D6;
+  --color-ink: #2E363C;
+  --color-muted: #5E5A52;
+  --color-line: #E2D6C2;
+  --color-accent: #983B15;
+  --color-accent-soft: #F6E0CE;
+  --color-sun: #E56936;
+  --color-stone: #817D73;
+  --color-warn: #9A2440;
+  --color-warn-soft: #F3CDC4;
+  --color-warn-line: #E3A99E;
+  --color-viewport: #2E363C;
+  --color-viewport-raised: #383F44;
+  --color-viewport-line: #525C62;
+  --color-viewport-text: #F2D6AC;
+  --color-viewport-muted: #BCAD95;
+  --font-display: "Source Sans 3", system-ui, sans-serif;
+  --font-sans: "Source Sans 3", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", Menlo, monospace;
 }
 body { font-family: var(--font-sans); background: var(--color-ground); color: var(--color-ink); }
 .recharts-wrapper :focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offset: 0; }
+.graph-grid {
+  background-color: var(--color-viewport);
+  background-image:
+    linear-gradient(to right, rgb(242 214 172 / 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(242 214 172 / 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
