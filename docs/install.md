@@ -193,7 +193,7 @@ the default unless you add `--embed-model gemma`.
 | Ollama model | `qwen3-embedding:0.6b` | `embeddinggemma-2:270m-bf16-text` |
 | Download | about 640 MB | about 575 MB |
 | Ollama | any recent version | 0.40 or newer |
-| Hook gate / MCP gate | 0.66 / 0.55 | 0.76 / 0.68 |
+| Hook gate / MCP gate | 0.66 / 0.55 | 0.82 / 0.68 |
 
 Both find the same notes: on a 27,000-chunk test corpus their recall at every
 quality tier was within one question of each other. EmbeddingGemma 2 was
