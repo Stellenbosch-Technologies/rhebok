@@ -608,7 +608,7 @@ fn a_first_install_that_chooses_gemma_writes_its_model_and_both_gates() {
     let cfg = rhebok::config::Config::load_from(&fx.opts.config_path);
     assert_eq!(cfg.embed.model, "embeddinggemma-2:270m-bf16-text");
     assert_eq!(cfg.embed.dimensions, 512);
-    assert_eq!(cfg.hook.threshold, 0.76);
+    assert_eq!(cfg.hook.threshold, 0.82);
     assert_eq!(cfg.mcp.threshold, 0.68);
     let text = std::fs::read_to_string(&fx.opts.config_path).unwrap();
     assert!(
@@ -627,7 +627,7 @@ fn a_first_install_that_chooses_gemma_writes_its_model_and_both_gates() {
         report
             .lines
             .iter()
-            .any(|l| l.starts_with("embed:") && l.contains("hook gate 0.76")),
+            .any(|l| l.starts_with("embed:") && l.contains("hook gate 0.82")),
         "{:?}",
         report.lines
     );
@@ -669,7 +669,7 @@ fn choosing_a_different_model_on_reinstall_switches_it_and_says_to_reindex() {
     let report = install(&fx.paths, &opts).unwrap();
     let cfg = rhebok::config::Config::load_from(&fx.opts.config_path);
     assert_eq!(cfg.embed.model, "embeddinggemma-2:270m-bf16-text");
-    assert_eq!(cfg.hook.threshold, 0.76, "the old model's gate is replaced");
+    assert_eq!(cfg.hook.threshold, 0.82, "the old model's gate is replaced");
     assert_eq!(cfg.sources, vec![std::path::PathBuf::from("/mine")]);
     assert!(
         report

@@ -426,8 +426,8 @@ rhebok has presets for two models, `qwen3-embedding:0.6b` (the default) and
 --embed-model qwen3|gemma` and the Model picker in the dashboard's Settings
 set `model`, `dimensions`, both `threshold`s and clear `prefix_scheme` in one
 write. The gates move with the model because each scores on its own scale:
-EmbeddingGemma 2 rates unrelated text around 0.70, so qwen3's 0.66 hook gate
-would let every hit through. Its presets are 0.76 for the hook and 0.68 for
+EmbeddingGemma 2 rates unrelated text around 0.80, so qwen3's 0.66 hook gate
+would let every hit through. Its presets are 0.82 for the hook and 0.68 for
 MCP. For any other model, `rhebok install --embed-model` estimates both
 gates from 24 built-in sentence pairs (see
 [Using another embedding model](install.md#using-another-embedding-model)).

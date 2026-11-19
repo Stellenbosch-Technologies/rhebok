@@ -32,7 +32,7 @@ pub const GEMMA: EmbedChoice = EmbedChoice {
     label: "EmbeddingGemma 2 (270M, bf16)",
     model: "embeddinggemma-2:270m-bf16-text",
     dimensions: 512,
-    hook_threshold: 0.76,
+    hook_threshold: 0.82,
     mcp_threshold: 0.68,
     size: "about 575 MB",
     min_ollama: Some("0.40.0"),
@@ -149,7 +149,7 @@ mod tests {
     #[test]
     fn the_catalog_reaches_the_dashboard_with_its_gates_as_written() {
         let json = serde_json::to_string(&GEMMA).unwrap();
-        assert!(json.contains(r#""hook_threshold":0.76"#), "{json}");
+        assert!(json.contains(r#""hook_threshold":0.82"#), "{json}");
         assert!(json.contains(r#""mcp_threshold":0.68"#), "{json}");
     }
 
@@ -166,7 +166,7 @@ mod tests {
                 "mcp.threshold"
             ]
         );
-        assert_eq!(p.set[2].1.as_float(), Some(0.76));
+        assert_eq!(p.set[2].1.as_float(), Some(0.82));
         assert_eq!(p.unset, ["embed.prefix_scheme"]);
     }
 }

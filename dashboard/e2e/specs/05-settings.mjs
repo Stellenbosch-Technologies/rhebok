@@ -204,10 +204,10 @@ export const tests = {
       assert(file.embed.model === "embeddinggemma-2:270m-bf16-text", `saved model: ${JSON.stringify(file.embed)}`);
       assert(file.embed.dimensions === 512, `saved dimensions: ${JSON.stringify(file.embed)}`);
       assert(!("prefix_scheme" in file.embed), `a stale prefix scheme is cleared: ${JSON.stringify(file.embed)}`);
-      assert(file.hook.threshold === 0.76, `hook gate: ${JSON.stringify(file.hook)}`);
+      assert(file.hook.threshold === 0.82, `hook gate: ${JSON.stringify(file.hook)}`);
       assert(file.mcp.threshold === 0.68, `MCP gate: ${JSON.stringify(file.mcp)}`);
       const text = readFileSync(sandbox.configPath, "utf8");
-      assert(!/0\.7599/.test(text), `gates are written as typed, not as widened floats: ${text}`);
+      assert(!/0\.8199/.test(text), `gates are written as typed, not as widened floats: ${text}`);
     } finally {
       sandbox.writeConfig();
     }
