@@ -307,7 +307,7 @@ pub fn preflight(
         if consent.to_pull_optional(&question) {
             pull_each(std::slice::from_ref(m), pull, &mut lines, &mut warnings);
         } else {
-            warnings.push(optional_model_advice(m));
+            lines.push(format!("ollama:   {}", optional_model_advice(m)));
         }
     }
     (lines, warnings)

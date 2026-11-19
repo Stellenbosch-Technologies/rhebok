@@ -212,7 +212,7 @@ fn an_unattended_install_or_update_never_pulls_the_optional_distill_model() {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
-        let (_, warnings) = preflight(
+        let (lines, warnings) = preflight(
             &url,
             &embedder_present_distiller_missing(),
             &consent(yes, quiet, never_asked),
@@ -229,12 +229,16 @@ fn an_unattended_install_or_update_never_pulls_the_optional_distill_model() {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
         );
         assert!(
-            warnings
+            lines
                 .iter()
-                .any(|w| w.contains(&format!("ollama pull {DISTILL}"))
-                    && w.contains("distill_episodes = false")
-                    && w.contains("optional")),
-            "yes={yes} quiet={quiet}: {warnings:?}"
+                .any(|l| l.contains(&format!("ollama pull {DISTILL}"))
+                    && l.contains("distill_episodes = false")
+                    && l.contains("optional")),
+            "yes={yes} quiet={quiet}: {lines:?}"
+        );
+        assert!(
+            warnings.is_empty(),
+            "an optional model left unpulled is not a warning: yes={yes} quiet={quiet}: {warnings:?}"
         );
     }
 }
@@ -298,7 +302,7 @@ fn declining_the_distill_model_still_pulls_the_embedder_it_was_asked_about_separ
         required: vec!["qwen3-embedding:0.6b".to_string()],
         optional: vec![DISTILL.to_string()],
     };
-    let (_, warnings) = preflight(
+    let (lines, warnings) = preflight(
         &url,
         &models,
         &consent(false, false, yes_unless_optional),
@@ -324,11 +328,12 @@ fn declining_the_distill_model_still_pulls_the_embedder_it_was_asked_about_separ
         vec!["qwen3-embedding:0.6b".to_string()]
     );
     assert!(
-        warnings
+        lines
             .iter()
-            .any(|w| w.contains(&format!("ollama pull {DISTILL}"))),
-        "{warnings:?}"
+            .any(|l| l.contains(&format!("ollama pull {DISTILL}"))),
+        "{lines:?}"
     );
+    assert!(warnings.is_empty(), "{warnings:?}");
 }
 
 #[test]
@@ -452,6 +457,27 @@ fn embeddinggemma_is_pulled_on_an_ollama_new_enough_to_run_it() {
         lines
             .iter()
             .any(|l| l.contains("pulled embeddinggemma-2:270m-bf16-text")),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn declining_the_optional_model_leaves_a_reminder_and_no_warning() {
+    let _serial = PULLED_TESTS_SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let url = serve(TAGS);
+    let (lines, warnings) = preflight(
+        &url,
+        &embedder_present_distiller_missing(),
+        &consent(false, false, refuse),
+        record_pull,
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains(&format!("ollama pull {DISTILL}"))),
         "{lines:?}"
     );
 }

@@ -89,3 +89,36 @@ fn a_missing_program_is_not_available_and_lists_error() {
     assert!(!cli.available());
     assert!(cli.marketplaces().is_err());
 }
+
+#[test]
+fn claude_is_looked_for_on_path_first_then_where_its_installers_put_it() {
+    let home = Path::new("/home/someone");
+    assert_eq!(
+        ClaudeCli::candidates(Some(home)),
+        vec![
+            PathBuf::from("claude"),
+            home.join(".local/bin/claude"),
+            home.join(".claude/local/claude"),
+        ]
+    );
+    assert_eq!(ClaudeCli::candidates(None), vec![PathBuf::from("claude")]);
+}
+
+#[test]
+fn the_first_candidate_that_runs_is_the_one_used() {
+    let t = tempfile::tempdir().unwrap();
+    let installed = stub(t.path(), "[]", "[]", 0);
+    let cli =
+        ClaudeCli::first_available(&[PathBuf::from("/nonexistent/claude"), installed.clone()]);
+    assert_eq!(cli.program(), installed.as_path());
+    assert!(cli.available());
+}
+
+#[test]
+fn with_no_candidate_that_runs_the_bare_command_is_kept() {
+    let cli = ClaudeCli::first_available(&[
+        PathBuf::from("/nonexistent/claude"),
+        PathBuf::from("/also/nonexistent/claude"),
+    ]);
+    assert_eq!(cli.program(), Path::new("claude"));
+}

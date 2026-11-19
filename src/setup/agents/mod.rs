@@ -46,6 +46,7 @@ impl AgentEnv {
                 .unwrap_or_else(|| home.join(".config"))
         };
         let codex_home = codex_home_from(std::env::var_os("CODEX_HOME"), &home);
+        let claude = ClaudeCli::first_available(&ClaudeCli::candidates(Some(&home)));
         let search_path = std::env::var_os("PATH")
             .map(|p| std::env::split_paths(&p).collect())
             .unwrap_or_default();
@@ -56,7 +57,7 @@ impl AgentEnv {
             applications: PathBuf::from("/Applications"),
             search_path,
             paths,
-            claude: ClaudeCli::from_path(),
+            claude,
             version: env!("CARGO_PKG_VERSION").to_string(),
             desktop_rewrites: claude_desktop::rewrites_while_running,
         }
