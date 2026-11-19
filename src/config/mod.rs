@@ -167,7 +167,7 @@ impl Profile {
                     max_neighbors: 12,
                 }),
                 rerank: None,
-                mmr_lambda: 0.5,
+                mmr_lambda: 0.7,
                 budget_ms: 1600,
             },
         }
@@ -1213,6 +1213,15 @@ mod tests {
                 p.budget_ms
             );
         }
+    }
+
+    #[test]
+    fn tier_4_diversifies_no_harder_than_the_setting_that_kept_its_answers() {
+        assert!(
+            Profile::tier(4).mmr_lambda >= 0.7,
+            "tier 4 mmr_lambda {} pushes answers out of the top 5",
+            Profile::tier(4).mmr_lambda
+        );
     }
 
     #[test]
