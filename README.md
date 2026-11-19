@@ -121,8 +121,10 @@ the golden set and the default backup key. The
 - **Intel Macs** have no release build yet, because of an upstream library
   issue.
 
-Ideas and bug reports are welcome in the
-[issues](https://github.com/Stellenbosch-Technologies/rhebok/issues); see
+Ask a question, share an idea or show what you built in
+[Discussions](https://github.com/Stellenbosch-Technologies/rhebok/discussions).
+Report a bug in the
+[issues](https://github.com/Stellenbosch-Technologies/rhebok/issues), and see
 [CONTRIBUTING.md](CONTRIBUTING.md) to get started on the code. Please report
 security problems privately, as [SECURITY.md](SECURITY.md) describes. Everyone
 taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).

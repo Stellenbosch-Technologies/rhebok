@@ -3,6 +3,13 @@
 Thanks for helping. Bug reports, ideas and pull requests are all welcome.
 Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
+## Asking a question or sharing an idea
+
+Use [Discussions](https://github.com/Stellenbosch-Technologies/rhebok/discussions):
+Q&A for questions about setup or results, Ideas for something rhebok could do,
+and Show and tell for what you built with it. An idea that turns into planned
+work becomes an issue.
+
 ## Reporting a bug
 
 Open an

@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Ask a question
+    url: https://github.com/Stellenbosch-Technologies/rhebok/discussions/categories/q-a
+    about: Questions about setup, configuration or results go to Discussions.
   - name: Report a security vulnerability
     url: https://github.com/Stellenbosch-Technologies/rhebok/security/advisories/new
     about: Please report security problems privately, not as a public issue.
