@@ -690,6 +690,49 @@ fn choosing_a_different_model_on_reinstall_switches_it_and_says_to_reindex() {
 }
 
 #[test]
+fn reinstalling_the_configured_model_reports_the_gates_config_toml_holds() {
+    let fx = fixture("1.2.3");
+    install(&fx.paths, &fx.opts).unwrap();
+    let written =
+        "sources = [\"/mine\"]\n\n[hook]\nthreshold = 0.76\n\n[mcp]\nthreshold = 0.68\n\n\
+                   [embed]\nmodel = \"embeddinggemma-2:270m-bf16-text\"\ndimensions = 512\n";
+    std::fs::write(&fx.opts.config_path, written).unwrap();
+    let opts = InstallOpts {
+        exe: fx.paths.bin.clone(),
+        embed: Some(&rhebok::embed::choice::GEMMA),
+        ..clone_opts(&fx.opts)
+    };
+    let report = install(&fx.paths, &opts).unwrap();
+    let line = report
+        .lines
+        .iter()
+        .find(|l| l.starts_with("embed:"))
+        .unwrap_or_else(|| panic!("{:?}", report.lines));
+    assert!(line.contains("hook gate 0.76"), "{line}");
+    assert!(line.contains("MCP gate 0.68"), "{line}");
+    assert!(line.contains("the preset is 0.82 and 0.68"), "{line}");
+    assert_eq!(
+        std::fs::read_to_string(&fx.opts.config_path).unwrap(),
+        written,
+        "gates the config already holds are left alone"
+    );
+
+    std::fs::write(
+        &fx.opts.config_path,
+        written.replace("threshold = 0.76", "threshold = 0.82"),
+    )
+    .unwrap();
+    let report = install(&fx.paths, &opts).unwrap();
+    let line = report
+        .lines
+        .iter()
+        .find(|l| l.starts_with("embed:"))
+        .unwrap_or_else(|| panic!("{:?}", report.lines));
+    assert!(line.contains("hook gate 0.82, MCP gate 0.68"), "{line}");
+    assert!(!line.contains("preset"), "{line}");
+}
+
+#[test]
 fn the_closing_summary_points_at_the_warnings_when_there_are_any() {
     let config = Path::new("/home/someone/.config/rhebok/config.toml");
     let clean = rhebok::setup::install::next_steps(config, 0);

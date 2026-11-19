@@ -144,9 +144,23 @@ fn choose_embed_model(
         "embed:    {} ({}), hook gate {}, MCP gate {}",
         choice.label, choice.model, choice.hook_threshold, choice.mcp_threshold
     );
-    let current = crate::config::Config::load_from(config_path).embed.model;
+    let cfg = crate::config::Config::load_from(config_path);
+    let current = cfg.embed.model;
     if current == choice.model {
-        r.lines.push(chosen);
+        let (hook, mcp) = (cfg.hook.threshold, cfg.mcp.threshold);
+        if hook == choice.hook_threshold as f32 && mcp == choice.mcp_threshold as f32 {
+            r.lines.push(chosen);
+        } else {
+            r.lines.push(format!(
+                "embed:    {} ({}), hook gate {hook} and MCP gate {mcp} from {}; \
+                 the preset is {} and {}",
+                choice.label,
+                choice.model,
+                config_path.display(),
+                choice.hook_threshold,
+                choice.mcp_threshold
+            ));
+        }
         return;
     }
     match crate::config::edit::update(config_path, None, &choice.patch()) {
