@@ -489,19 +489,25 @@ fn install_offers_detected_agents_and_quiet_only_repairs_stale_ones() {
         r#"{"mcpServers":{"rhebok":{"command":"/old/rhebok","args":["mcp"]}}}"#,
     );
 
-    let quiet = agents::offer_after_install(&fx.env, true, true, |_| panic!("never asks"));
+    let quiet = agents::offer_after_install(&fx.env, true, true, |_, _| panic!("never asks"));
     assert!(quiet.warnings.is_empty(), "{:?}", quiet.warnings);
     assert_eq!(Cursor.status(&fx.env), Status::NotConnected);
     assert_eq!(Gemini.status(&fx.env), Status::Connected);
 
-    let declined = agents::offer_after_install(&fx.env, false, false, |_| false);
+    let declined = agents::offer_after_install(&fx.env, false, false, |q, default_yes| {
+        assert!(
+            !default_yes,
+            "connecting another agent must default to no: {q}"
+        );
+        false
+    });
     assert_eq!(Cursor.status(&fx.env), Status::NotConnected);
     assert!(declined
         .lines
         .iter()
         .any(|l| l.contains("rhebok connect cursor")));
 
-    agents::offer_after_install(&fx.env, true, false, |_| panic!("--yes never asks"));
+    agents::offer_after_install(&fx.env, true, false, |_, _| panic!("--yes never asks"));
     assert_eq!(Cursor.status(&fx.env), Status::Connected);
     assert_eq!(
         ClaudeDesktop.status(&fx.env),
@@ -705,7 +711,7 @@ fn a_quiet_install_repairs_a_leftover_br8n_entry_once_claude_desktop_is_closed()
     write(&file, DESKTOP_WITH_BR8N);
 
     desktop_running(&mut fx);
-    let open = agents::offer_after_install(&fx.env, false, true, |_| panic!("never asks"));
+    let open = agents::offer_after_install(&fx.env, false, true, |_, _| panic!("never asks"));
     assert!(
         open.warnings
             .iter()
@@ -715,7 +721,7 @@ fn a_quiet_install_repairs_a_leftover_br8n_entry_once_claude_desktop_is_closed()
     assert_eq!(read(&file), DESKTOP_WITH_BR8N);
 
     fx.env.desktop_rewrites = |_| false;
-    agents::offer_after_install(&fx.env, false, true, |_| panic!("never asks"));
+    agents::offer_after_install(&fx.env, false, true, |_, _| panic!("never asks"));
     assert_eq!(ClaudeDesktop.status(&fx.env), Status::Connected);
 }
 
@@ -786,7 +792,7 @@ fn an_interactive_install_does_not_offer_claude_desktop_while_it_runs() {
     std::fs::create_dir_all(ClaudeDesktop::config_dir(&fx.env)).unwrap();
     assert!(ClaudeDesktop.detect(&fx.env).installed);
     desktop_running(&mut fx);
-    let r = agents::offer_after_install(&fx.env, false, false, |q| {
+    let r = agents::offer_after_install(&fx.env, false, false, |q, _| {
         assert!(!q.contains("Claude Desktop"), "asked: {q}");
         false
     });
@@ -804,7 +810,7 @@ fn a_leftover_br8n_entry_is_reported_once_while_claude_desktop_runs() {
     let mut fx = fixture();
     write(&ClaudeDesktop::config_file(&fx.env), DESKTOP_WITH_BR8N);
     desktop_running(&mut fx);
-    let r = agents::offer_after_install(&fx.env, false, true, |_| panic!("never asks"));
+    let r = agents::offer_after_install(&fx.env, false, true, |_, _| panic!("never asks"));
     let about: Vec<_> = r
         .warnings
         .iter()

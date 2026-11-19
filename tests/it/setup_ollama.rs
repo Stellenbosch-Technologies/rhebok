@@ -51,10 +51,10 @@ fn record_pull(m: &str) -> anyhow::Result<()> {
         .push(m.to_string());
     Ok(())
 }
-fn refuse(_: &str) -> bool {
+fn refuse(_: &str, _: bool) -> bool {
     false
 }
-fn accept(_: &str) -> bool {
+fn accept(_: &str, _: bool) -> bool {
     true
 }
 
@@ -65,7 +65,7 @@ fn required(models: &[&str]) -> OllamaModels {
     }
 }
 
-fn consent(yes: bool, quiet: bool, confirm: fn(&str) -> bool) -> Consent {
+fn consent(yes: bool, quiet: bool, confirm: fn(&str, bool) -> bool) -> Consent {
     Consent {
         yes,
         quiet,
@@ -147,7 +147,7 @@ fn yes_skips_the_prompt_and_unreachable_names_ollama_serve() {
 }
 
 static ASKED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
-fn record_question(q: &str) -> bool {
+fn record_question(q: &str, _: bool) -> bool {
     ASKED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -197,7 +197,7 @@ fn embedder_present_distiller_missing() -> OllamaModels {
     }
 }
 
-fn never_asked(q: &str) -> bool {
+fn never_asked(q: &str, _: bool) -> bool {
     panic!("an unattended run must not ask anything, but asked: {q}");
 }
 
@@ -276,7 +276,7 @@ fn an_interactive_yes_pulls_the_optional_distill_model() {
 
 const NOTHING_PULLED: &str = r#"{"models":[]}"#;
 
-fn yes_unless_optional(q: &str) -> bool {
+fn yes_unless_optional(q: &str, _: bool) -> bool {
     ASKED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -495,4 +495,49 @@ fn status_still_says_ollama_is_reachable_when_only_the_optional_model_is_missing
         lines[1].contains("optional") && lines[1].contains(&format!("ollama pull {DISTILL}")),
         "{lines:?}"
     );
+}
+
+static DEFAULTS: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
+fn record_default(q: &str, default_yes: bool) -> bool {
+    DEFAULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((q.to_string(), default_yes));
+    false
+}
+
+#[test]
+fn the_required_model_is_offered_with_yes_as_the_default_and_the_optional_one_with_no() {
+    let url = serve(NOTHING_PULLED);
+    let models = OllamaModels {
+        required: vec!["qwen3-embedding:0.6b".to_string()],
+        optional: vec![DISTILL.to_string()],
+    };
+    preflight(
+        &url,
+        &models,
+        &consent(false, false, record_default),
+        record_pull,
+    );
+    let asked = DEFAULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    assert!(
+        asked[0].0.contains("qwen3-embedding:0.6b") && asked[0].1,
+        "{asked:?}"
+    );
+    assert!(asked[1].0.contains(DISTILL) && !asked[1].1, "{asked:?}");
+}
+
+#[test]
+fn an_empty_answer_takes_the_default_and_only_yes_counts_as_yes() {
+    use rhebok::setup::answer_is_yes;
+    assert!(answer_is_yes("\n", true));
+    assert!(!answer_is_yes("\n", false));
+    assert!(answer_is_yes("  y \n", false));
+    assert!(answer_is_yes("yes\n", false));
+    assert!(!answer_is_yes("n\n", true));
+    assert!(!answer_is_yes("maybe\n", true));
 }

@@ -64,7 +64,7 @@ fn homebrew_fixture() -> Fx {
         ollama_url: "http://127.0.0.1:1".to_string(),
         models: rhebok::setup::ollama::OllamaModels::default(),
         embed: None,
-        confirm: |_| false,
+        confirm: |_, _| false,
         pull: |_| Ok(()),
     };
     Fx {
@@ -205,7 +205,7 @@ fn uninstall_leaves_homebrews_binary_and_says_how_to_remove_it() {
             yes: true,
             claude: fx.opts.claude.clone(),
             config_path: fx.opts.config_path.clone(),
-            confirm: |_| false,
+            confirm: |_, _| false,
         },
     )
     .unwrap();

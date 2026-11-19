@@ -69,6 +69,14 @@ impl Paths {
     }
 }
 
+pub fn answer_is_yes(line: &str, default_yes: bool) -> bool {
+    match line.trim() {
+        "" => default_yes,
+        "y" | "Y" | "yes" | "YES" => true,
+        _ => false,
+    }
+}
+
 pub fn homebrew_prefix(exe: &Path) -> Option<PathBuf> {
     let bin = exe.parent()?;
     let formula = bin.parent()?.parent()?;

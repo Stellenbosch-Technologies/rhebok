@@ -14,7 +14,7 @@ pub struct InstallOpts {
     pub ollama_url: String,
     pub models: super::ollama::OllamaModels,
     pub embed: Option<&'static crate::embed::choice::EmbedChoice>,
-    pub confirm: fn(&str) -> bool,
+    pub confirm: fn(&str, bool) -> bool,
     pub pull: fn(&str) -> Result<()>,
 }
 
@@ -465,7 +465,7 @@ pub struct UninstallOpts {
     pub yes: bool,
     pub claude: ClaudeCli,
     pub config_path: PathBuf,
-    pub confirm: fn(&str) -> bool,
+    pub confirm: fn(&str, bool) -> bool,
 }
 
 #[derive(Debug, Default)]
@@ -479,7 +479,8 @@ pub fn uninstall(paths: &Paths, opts: &UninstallOpts) -> Result<UninstallReport>
     if crate::index::IndexLock::is_held(&paths.db) {
         bail!("an index is running; wait for it to finish (`rhebok status` shows progress), then run `rhebok uninstall` again");
     }
-    if opts.purge && !opts.yes && !(opts.confirm)("remove the index and the config as well?") {
+    if opts.purge && !opts.yes && !(opts.confirm)("remove the index and the config as well?", false)
+    {
         bail!("purge declined; nothing was removed");
     }
     let mut r = UninstallReport::default();
