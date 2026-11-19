@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 pub struct RemoteEmbed {
     pub url: String,
     pub model: String,
-    pub token: String,
+    pub token: Option<String>,
 }
 
 impl std::fmt::Debug for RemoteEmbed {
@@ -14,7 +14,7 @@ impl std::fmt::Debug for RemoteEmbed {
         f.debug_struct("RemoteEmbed")
             .field("url", &self.url)
             .field("model", &self.model)
-            .field("token", &"<redacted>")
+            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
             .finish()
     }
 }
@@ -145,13 +145,7 @@ pub fn resolve(config_path: &Path) -> Result<Option<RemoteEmbed>> {
             path.display()
         )
     })?;
-    let token = pick("RHEBOK_EMBED_TOKEN").with_context(|| {
-        format!(
-            "RHEBOK_EMBED_URL is set to {url} but RHEBOK_EMBED_TOKEN is not; \
-             set it in {}",
-            path.display()
-        )
-    })?;
+    let token = pick("RHEBOK_EMBED_TOKEN");
     Ok(Some(RemoteEmbed {
         url: url.trim_end_matches('/').to_string(),
         model,

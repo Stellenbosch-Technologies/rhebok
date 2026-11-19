@@ -2,6 +2,8 @@ pub mod choice;
 pub mod ollama;
 pub use ollama::OllamaEmbedder;
 pub mod openai;
+pub mod probe;
+pub mod source;
 pub use openai::OpenAiEmbedder;
 
 use anyhow::Result;

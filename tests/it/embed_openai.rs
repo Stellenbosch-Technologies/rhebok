@@ -34,7 +34,7 @@ fn remote(url: &str) -> RemoteEmbed {
     RemoteEmbed {
         url: url.into(),
         model: "wire-name".into(),
-        token: "tok".into(),
+        token: Some("tok".into()),
     }
 }
 
@@ -244,7 +244,7 @@ fn a_forbidden_token_says_so() {
 fn a_token_with_a_newline_is_blamed_on_the_token_not_the_network() {
     let (url, _rx) = stub("200 OK", r#"{"data":[{"index":0,"embedding":[1.0,0.0]}]}"#);
     let mut r = remote(&url);
-    r.token = "tok\n".into();
+    r.token = Some("tok\n".into());
     let e = OpenAiEmbedder::new(&cfg(), &r);
     let err = format!("{:#}", e.embed_query("q").unwrap_err());
     assert!(err.contains("RHEBOK_EMBED_TOKEN"), "{err}");
@@ -271,4 +271,18 @@ fn a_timeout_is_reported_as_slow_not_unreachable() {
     let err = format!("{:#}", e.embed_query("q").unwrap_err());
     assert!(err.contains("did not answer in time"), "{err}");
     assert!(!err.contains("unreachable"), "{err}");
+}
+
+#[test]
+fn without_a_token_no_authorization_header_is_sent() {
+    let (url, rx) = stub("200 OK", r#"{"data":[{"index":0,"embedding":[3.0,4.0]}]}"#);
+    let mut r = remote(&url);
+    r.token = None;
+    let e = OpenAiEmbedder::new(&cfg(), &r);
+    e.embed_documents(&["a".into()]).unwrap();
+    let req = rx.recv().unwrap();
+    assert!(
+        !req.to_ascii_lowercase().contains("authorization:"),
+        "{req}"
+    );
 }
