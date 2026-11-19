@@ -481,3 +481,18 @@ fn declining_the_optional_model_leaves_a_reminder_and_no_warning() {
         "{lines:?}"
     );
 }
+
+#[test]
+fn status_still_says_ollama_is_reachable_when_only_the_optional_model_is_missing() {
+    let url = serve(TAGS);
+    let lines = status_lines(&url, &embedder_present_distiller_missing());
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert_eq!(
+        lines[0],
+        format!("reachable at {url}, qwen3-embedding:0.6b present")
+    );
+    assert!(
+        lines[1].contains("optional") && lines[1].contains(&format!("ollama pull {DISTILL}")),
+        "{lines:?}"
+    );
+}

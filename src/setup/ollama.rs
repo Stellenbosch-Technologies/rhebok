@@ -213,6 +213,9 @@ pub fn status_lines(url: &str, models: &OllamaModels) -> Vec<String> {
         .partition(|m| models.required.contains(m));
     let mut lines = Vec::new();
     let (missing_required, refusals) = split_by_ollama_version(url, missing_required);
+    if missing_required.is_empty() && refusals.is_empty() {
+        lines.push(reachable_with(url, &models.required));
+    }
     lines.extend(refusals);
     if !missing_required.is_empty() {
         lines.push(format!(
@@ -227,6 +230,14 @@ pub fn status_lines(url: &str, models: &OllamaModels) -> Vec<String> {
     }
     lines.extend(missing_optional.iter().map(|m| optional_model_advice(m)));
     lines
+}
+
+fn reachable_with(url: &str, required: &[String]) -> String {
+    if required.is_empty() {
+        format!("reachable at {url}")
+    } else {
+        format!("reachable at {url}, {} present", required.join(", "))
+    }
 }
 
 pub struct Consent {
