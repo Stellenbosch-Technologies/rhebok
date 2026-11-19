@@ -428,7 +428,10 @@ set `model`, `dimensions`, both `threshold`s and clear `prefix_scheme` in one
 write. The gates move with the model because each scores on its own scale:
 EmbeddingGemma 2 rates unrelated text around 0.70, so qwen3's 0.66 hook gate
 would let every hit through. Its presets are 0.76 for the hook and 0.68 for
-MCP. Any other Ollama model still works if you set these fields by hand.
+MCP. For any other model, `rhebok install --embed-model` estimates both
+gates from 24 built-in sentence pairs (see
+[Using another embedding model](install.md#using-another-embedding-model)).
+Set these fields by hand to use your own gates.
 
 Changing `model`, `dimensions`, `chunk_tokens`, or the prefix scheme
 invalidates the index; `rhebok` detects the mismatch and refuses to mix

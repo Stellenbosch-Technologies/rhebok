@@ -134,6 +134,19 @@ fn live_embedding_returns_configured_dimensions() {
 }
 
 #[test]
+#[ignore = "requires a running ollama with the model pulled"]
+fn the_built_in_pairs_put_qwen3_back_on_its_own_gates() {
+    let e = rhebok::embed::calibrate::measure(&OllamaEmbedder::new(&cfg())).unwrap();
+    let qwen3 = rhebok::embed::choice::QWEN3;
+    assert_eq!(
+        (e.hook, e.mcp),
+        (qwen3.hook_threshold, qwen3.mcp_threshold),
+        "{e:?}"
+    );
+    assert_eq!(e.matched_below_hook, 0, "{e:?}");
+}
+
+#[test]
 fn a_busy_ollama_is_reported_as_slow_not_as_stopped() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());

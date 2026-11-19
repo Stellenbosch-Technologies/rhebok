@@ -117,6 +117,64 @@ pub fn fake_ollama() -> String {
     format!("http://{addr}")
 }
 
+pub fn fake_ollama_embedding(embed: fn(&str) -> Vec<f32>) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind fake ollama");
+    let addr = listener.local_addr().expect("fake ollama addr");
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut received: Vec<u8> = Vec::new();
+            let mut buf = [0u8; 8192];
+            loop {
+                match stream.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        received.extend_from_slice(&buf[..n]);
+                        if let Some(end) = received.windows(4).position(|w| w == b"\r\n\r\n") {
+                            let headers = String::from_utf8_lossy(&received[..end]);
+                            let want: usize = headers
+                                .lines()
+                                .find_map(|l| {
+                                    l.to_ascii_lowercase()
+                                        .strip_prefix("content-length:")
+                                        .map(|v| v.trim().to_string())
+                                })
+                                .and_then(|v| v.parse().ok())
+                                .unwrap_or(0);
+                            if received.len() - (end + 4) >= want {
+                                break;
+                            }
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+            let inputs: Vec<String> = received
+                .windows(4)
+                .position(|w| w == b"\r\n\r\n")
+                .map(|end| &received[end + 4..])
+                .and_then(|body| serde_json::from_slice::<serde_json::Value>(body).ok())
+                .and_then(|v| {
+                    v["input"].as_array().map(|a| {
+                        a.iter()
+                            .filter_map(|s| s.as_str().map(str::to_string))
+                            .collect()
+                    })
+                })
+                .unwrap_or_default();
+            let vectors: Vec<Vec<f32>> = inputs.iter().map(|t| embed(t)).collect();
+            let body = serde_json::json!({ "embeddings": vectors }).to_string();
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(resp.as_bytes());
+        }
+    });
+    format!("http://{addr}")
+}
+
 /// `fake_ollama`, but every response is held for `delay` before it is written.
 ///
 /// Exists to force a `Profile::budget_ms` deadline deterministically: the
