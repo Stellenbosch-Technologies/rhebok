@@ -8,7 +8,7 @@ pub struct OpenAiEmbedder {
     url: String,
     wire_model: String,
     stamped_model: String,
-    token: String,
+    token: Option<String>,
     scheme: PrefixScheme,
     dims: usize,
     batch: usize,
@@ -48,26 +48,26 @@ impl OpenAiEmbedder {
     ) -> Result<Vec<Vec<f32>>> {
         let expected = inputs.len();
         let body = serde_json::json!({ "model": self.wire_model, "input": inputs });
-        let resp = client
-            .post(format!("{}/v1/embeddings", self.url))
-            .bearer_auth(&self.token)
-            .json(&body)
-            .send()
-            .map_err(|e| {
-                let why = if e.is_timeout() {
-                    format!(
-                        "{} did not answer in time — it may be busy or still loading its model",
-                        self.url
-                    )
-                } else if e.is_builder() {
-                    "RHEBOK_EMBED_TOKEN is not a valid header value — check it for a stray \
+        let request = client.post(format!("{}/v1/embeddings", self.url));
+        let request = match &self.token {
+            Some(token) => request.bearer_auth(token),
+            None => request,
+        };
+        let resp = request.json(&body).send().map_err(|e| {
+            let why = if e.is_timeout() {
+                format!(
+                    "{} did not answer in time — it may be busy or still loading its model",
+                    self.url
+                )
+            } else if e.is_builder() {
+                "RHEBOK_EMBED_TOKEN is not a valid header value — check it for a stray \
                      newline or control character"
-                        .to_string()
-                } else {
-                    format!("{} is unreachable", self.url)
-                };
-                anyhow::Error::new(e).context(why)
-            })?;
+                    .to_string()
+            } else {
+                format!("{} is unreachable", self.url)
+            };
+            anyhow::Error::new(e).context(why)
+        })?;
 
         let status = resp.status();
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {

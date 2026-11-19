@@ -2,6 +2,7 @@ pub mod agents;
 pub mod claude;
 pub mod install;
 pub mod migrate;
+pub mod model;
 pub mod ollama;
 pub mod plugin;
 

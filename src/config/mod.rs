@@ -1827,7 +1827,7 @@ mod load_tests {
             Some(crate::env_file::RemoteEmbed {
                 url: "http://h:1".into(),
                 model: "m".into(),
-                token: "tok".into(),
+                token: Some("tok".into()),
             })
         );
     }

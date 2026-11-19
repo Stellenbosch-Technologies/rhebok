@@ -151,18 +151,24 @@ pub fn run(cfg: &Config) -> Result<bool> {
         true,
         "env file",
         &format!(
-            "{} {env_state}; RHEBOK_EMBED_URL, MODEL and TOKEN resolved (token not shown)",
-            env.display()
+            "{} {env_state}; RHEBOK_EMBED_URL and MODEL resolved, {}",
+            env.display(),
+            if remote.token.is_some() {
+                "TOKEN set (not shown)"
+            } else {
+                "no TOKEN, so no Authorization header is sent"
+            }
         ),
     );
 
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .build()?;
-    let listed = client
-        .get(format!("{}/v1/models", remote.url))
-        .bearer_auth(&remote.token)
-        .send();
+    let listed = crate::embed::probe::authorized(
+        client.get(format!("{}/v1/models", remote.url)),
+        remote.token.as_deref(),
+    )
+    .send();
     match listed {
         Err(e) => {
             all &= line(
@@ -320,7 +326,7 @@ mod tests {
         embed.remote = Some(crate::env_file::RemoteEmbed {
             url: "http://127.0.0.1:1".into(),
             model: "m".into(),
-            token: "t".into(),
+            token: Some("t".into()),
         });
         let keep_alive = local_keep_alive(&embed);
         assert!(keep_alive.is_none());

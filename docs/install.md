@@ -207,6 +207,42 @@ install makes its index unreadable, so run `rhebok index --reindex`
 afterwards; on a large index that takes hours. If your Ollama is older than
 0.40, install refuses to download EmbeddingGemma 2 and says how to upgrade.
 
+### Using another embedding model
+
+At the same question, or with `--embed-model`, you can also give rhebok a
+model of your own:
+
+| You give | rhebok uses |
+|---|---|
+| an Ollama model name, such as `nomic-embed-text` | that model, pulled through Ollama |
+| an Ollama model page, such as `https://ollama.com/library/nomic-embed-text` | the model the page names, tag included |
+| a Hugging Face model page, such as `https://huggingface.co/<organisation>/<model>` | `hf.co/<organisation>/<model>`, pulled through Ollama. This works only for repositories that hold GGUF files |
+| the URL of an OpenAI-compatible embedding server, such as `http://localhost:1234` | that server, for every embedding |
+
+For an Ollama model, install pulls it, embeds one test sentence to learn how
+many dimensions it returns, and writes the model and its dimensions to
+`config.toml`. If the model cannot embed, which is what happens with a chat
+model, install says so and leaves the config on the model it had.
+
+For a server, install asks for a token (press Enter if it needs none), lists
+the models the server offers, and asks which one to use. It then embeds one
+test sentence and writes the server's URL, the model and the token to the
+`env` file beside `config.toml` (see
+[Embedding somewhere other than local Ollama](configuration.md#embedding-somewhere-other-than-local-ollama)).
+Unattended, with `--yes`, it reads the model from `RHEBOK_EMBED_MODEL` and
+the token from `RHEBOK_EMBED_TOKEN`, or uses the server's only model if it
+offers just one.
+
+The relevance gates were measured for Qwen3 and EmbeddingGemma 2 only. With
+any other model, rhebok keeps Qwen3's gates (0.66 for the hook, 0.55 for MCP)
+and says so. Every model scores on its own scale, so these gates can let in
+too much or too little. Run `rhebok bench` with a golden set to see where
+they belong for your model, then set `threshold` under `[hook]` and `[mcp]`.
+After your first `rhebok index`, run `rhebok doctor`: it checks the server,
+the model and the dimensions end to end, and whether they agree with the
+vectors in your index. Before that first index, its agreement check fails,
+because there are no vectors yet to compare against.
+
 ## Step 3: Tell rhebok what to search
 
 rhebok searches the folders you choose. It also searches your past Claude Code

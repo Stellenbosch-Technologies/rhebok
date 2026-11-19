@@ -187,7 +187,9 @@ enum Cmd {
         /// Print failures only
         #[arg(long)]
         quiet: bool,
-        /// Embedding model to use: qwen3 (the default) or gemma. Asked on a first interactive install
+        /// Embedding model to use: qwen3 (the default), gemma, an Ollama model name, a model
+        /// page on ollama.com or huggingface.co, or the URL of an OpenAI-compatible embedding
+        /// server. Asked on a first interactive install
         #[arg(long, value_name = "MODEL")]
         embed_model: Option<String>,
     },
@@ -447,27 +449,114 @@ fn confirm_on_stdin(question: &str) -> bool {
     matches!(line.trim(), "y" | "Y" | "yes" | "YES")
 }
 
-fn choose_embed_on_stdin() -> &'static rhebok::embed::choice::EmbedChoice {
+fn choose_embed_on_stdin() -> rhebok::embed::source::ModelSource {
     use rhebok::embed::choice::CHOICES;
+    use rhebok::embed::source::{parse, ModelSource};
     use std::io::IsTerminal;
     if !std::io::stdin().is_terminal() {
-        return &CHOICES[0];
+        return ModelSource::Preset(&CHOICES[0]);
     }
     eprintln!("? which embedding model should rhebok use?");
     for (i, c) in CHOICES.iter().enumerate() {
         eprintln!("  {}) {} ({}): {}", i + 1, c.label, c.size, c.summary);
     }
-    eprint!("  choose [1] ");
-    let mut line = String::new();
-    if std::io::stdin().read_line(&mut line).is_err() {
-        return &CHOICES[0];
+    eprintln!(
+        "  or paste an Ollama model name, a model page on ollama.com or huggingface.co, or the \
+         URL of an OpenAI-compatible embedding server such as http://localhost:1234"
+    );
+    loop {
+        eprint!("  choose [1] ");
+        let mut line = String::new();
+        match std::io::stdin().read_line(&mut line) {
+            Ok(0) | Err(_) => return ModelSource::Preset(&CHOICES[0]),
+            Ok(_) => {}
+        }
+        match parse(&line) {
+            Ok(source) => return source,
+            Err(e) => eprintln!("  {e:#}"),
+        }
     }
-    line.trim()
-        .parse::<usize>()
-        .ok()
-        .and_then(|n| CHOICES.get(n.wrapping_sub(1)))
-        .or_else(|| rhebok::embed::choice::find(line.trim()))
-        .unwrap_or(&CHOICES[0])
+}
+
+fn read_secret_on_stdin(question: &str) -> Option<String> {
+    eprint!("? {question} ");
+    let fd = libc::STDIN_FILENO;
+    let mut term = std::mem::MaybeUninit::<libc::termios>::uninit();
+    let original = (unsafe { libc::tcgetattr(fd, term.as_mut_ptr()) } == 0)
+        .then(|| unsafe { term.assume_init() });
+    if let Some(original) = original {
+        let mut hidden = original;
+        hidden.c_lflag &= !libc::ECHO;
+        unsafe { libc::tcsetattr(fd, libc::TCSANOW, &hidden) };
+    }
+    let mut line = String::new();
+    let read = std::io::stdin().read_line(&mut line);
+    if let Some(original) = original {
+        unsafe { libc::tcsetattr(fd, libc::TCSANOW, &original) };
+    }
+    eprintln!();
+    read.ok()?;
+    Some(line.trim().to_string()).filter(|t| !t.is_empty())
+}
+
+struct ChosenEndpoint {
+    url: String,
+    model: String,
+    dimensions: usize,
+    token: Option<String>,
+}
+
+fn connect_endpoint(url: &str, interactive: bool) -> Result<ChosenEndpoint> {
+    use rhebok::embed::probe;
+    use rhebok::env_file::{MODEL_VAR, TOKEN_VAR};
+    let from_env = |key: &str| std::env::var(key).ok().filter(|v| !v.trim().is_empty());
+    let token = if interactive {
+        read_secret_on_stdin(&format!(
+            "token for {url} (press Enter if it needs none; it is not shown)"
+        ))
+    } else {
+        from_env(TOKEN_VAR)
+    };
+    let listed = probe::endpoint_models(url, token.as_deref());
+    let model = if interactive {
+        let names = listed.as_ref().cloned().unwrap_or_default();
+        match &listed {
+            Ok(names) if !names.is_empty() => {
+                eprintln!("? which model at {url} should rhebok embed with?");
+                for (i, m) in names.iter().enumerate() {
+                    eprintln!("  {}) {m}", i + 1);
+                }
+                eprint!("  choose{} ", if names.len() == 1 { " [1]" } else { "" });
+            }
+            Ok(_) => eprint!("? {url} lists no models; type the model name: "),
+            Err(e) => {
+                eprint!("? could not list the models at {url} ({e:#}); type the model name: ")
+            }
+        }
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        rhebok::setup::model::pick_model(&names, &line)
+            .ok_or_else(|| anyhow::anyhow!("no model was chosen for {url}"))?
+    } else {
+        match (from_env(MODEL_VAR), &listed) {
+            (Some(m), _) => m,
+            (None, Ok(names)) if names.len() == 1 => names[0].clone(),
+            (None, Ok(names)) => anyhow::bail!(
+                "{url} serves {} models; set {MODEL_VAR} to the one to embed with: {}",
+                names.len(),
+                names.join(", ")
+            ),
+            (None, Err(e)) => anyhow::bail!("{e:#}; set {MODEL_VAR} to the model to embed with"),
+        }
+    };
+    let dimensions = probe::endpoint_dimensions(url, &model, token.as_deref())?;
+    rhebok::setup::model::write_endpoint(&Config::config_path(), url, &model, token.as_deref())?;
+    Ok(ChosenEndpoint {
+        url: url.to_string(),
+        model,
+        dimensions,
+        token,
+    })
 }
 
 fn run_agents(json: bool) -> Result<()> {
@@ -1680,15 +1769,10 @@ fn main() -> Result<()> {
             quiet,
             embed_model,
         } => {
-            let named = match embed_model.as_deref() {
-                Some(id) => Some(rhebok::embed::choice::find(id).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "unknown embedding model `{id}`; choose one of {}",
-                        rhebok::embed::choice::ids()
-                    )
-                })?),
-                None => None,
-            };
+            let asked = embed_model
+                .as_deref()
+                .map(rhebok::embed::source::parse)
+                .transpose()?;
             let paths = rhebok::setup::Paths::from_env();
             let agent_env = rhebok::setup::agents::AgentEnv::from_env();
             let migration = rhebok::setup::migrate::migrate(
@@ -1709,26 +1793,44 @@ fn main() -> Result<()> {
             } else {
                 cfg
             };
+            let first_install = !Config::config_path().is_file();
+            let interactive = !yes && !quiet && std::io::IsTerminal::is_terminal(&std::io::stdin());
             let remote = cfg.embed.remote.is_some() || cfg.embed.remote_error.is_some();
-            let embed = if remote {
-                if named.is_some() {
-                    migration.warnings.push(
-                        "a remote embedding endpoint is configured, so --embed-model was ignored; \
-                         it only chooses the model Ollama serves"
-                            .to_string(),
-                    );
+            let source = match asked {
+                Some(source) => Some(source),
+                None if !remote && !yes && !quiet && first_install => Some(choose_embed_on_stdin()),
+                None => None,
+            };
+            use rhebok::embed::source::ModelSource;
+            let mut embed = None;
+            let mut custom_ollama = None;
+            let mut endpoint = None;
+            match source {
+                Some(ModelSource::Endpoint(url)) => {
+                    endpoint = Some(connect_endpoint(&url, interactive)?);
                 }
-                None
-            } else if named.is_some() {
-                named
-            } else if !yes && !quiet && !Config::config_path().is_file() {
-                Some(choose_embed_on_stdin())
+                Some(other) if remote => {
+                    migration.warnings.push(format!(
+                        "a remote embedding endpoint is configured, so {} was ignored; \
+                         --embed-model with an Ollama model only chooses the model Ollama serves",
+                        other.describe()
+                    ));
+                }
+                Some(ModelSource::Preset(choice)) => embed = Some(choice),
+                Some(ModelSource::Ollama(model)) => custom_ollama = Some(model),
+                None => {}
+            }
+            let cfg = if endpoint.is_some() {
+                Config::load()
             } else {
-                None
+                cfg
             };
             let mut model_cfg = cfg.clone();
             if let Some(choice) = embed {
                 model_cfg.embed.model = choice.model.to_string();
+            }
+            if let Some(model) = &custom_ollama {
+                model_cfg.embed.model = model.clone();
             }
             let opts = rhebok::setup::install::InstallOpts {
                 exe: std::env::current_exe()?,
@@ -1743,7 +1845,42 @@ fn main() -> Result<()> {
                 confirm: confirm_on_stdin,
                 pull: rhebok::setup::ollama::pull,
             };
-            let report = rhebok::setup::install::install(&paths, &opts)?;
+            let mut report = rhebok::setup::install::install(&paths, &opts)?;
+            if let Some(model) = &custom_ollama {
+                match rhebok::embed::probe::ollama_dimensions(&cfg.embed.ollama_url, model) {
+                    Ok(dimensions) => rhebok::setup::model::apply_custom(
+                        &opts.config_path,
+                        model,
+                        dimensions,
+                        first_install,
+                        &mut report,
+                    ),
+                    Err(e) => report.warnings.push(format!(
+                        "{e:#}. rhebok still embeds with {}; once `ollama pull {model}` works, \
+                         run `rhebok install --embed-model {model}`",
+                        Config::load_from(&opts.config_path).embed.model
+                    )),
+                }
+            }
+            if let Some(ep) = &endpoint {
+                report.lines.push(format!(
+                    "endpoint: {} serves {}, {}",
+                    ep.url,
+                    ep.model,
+                    if ep.token.is_some() {
+                        "with a token"
+                    } else {
+                        "with no token"
+                    }
+                ));
+                rhebok::setup::model::apply_custom(
+                    &opts.config_path,
+                    &ep.model,
+                    ep.dimensions,
+                    first_install,
+                    &mut report,
+                );
+            }
             let offered = rhebok::setup::agents::offer_after_install(
                 &agent_env,
                 yes,

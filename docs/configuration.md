@@ -476,7 +476,12 @@ RHEBOK_EMBED_MODEL=text-embedding-qwen3-embedding-0.6b
 RHEBOK_EMBED_TOKEN=your-token
 ```
 
-The file holds a token, so rhebok refuses to read it unless it is mode `0600` or
+`RHEBOK_EMBED_TOKEN` is optional: without it, rhebok sends no `Authorization`
+header, which is what LM Studio and Ollama's own OpenAI-compatible API expect
+by default. `rhebok install` can write this file for you; see
+[Using another embedding model](install.md#using-another-embedding-model).
+
+The file can hold a token, so rhebok refuses to read it unless it is mode `0600` or
 tighter. rhebok reads the file itself rather than relying on your shell, because
 the hook runs in a process that never sees your shell profile. A variable set
 in the process environment overrides the same key in the file.

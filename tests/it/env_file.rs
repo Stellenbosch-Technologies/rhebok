@@ -72,13 +72,13 @@ fn resolve_reads_the_file_beside_the_config() {
         RemoteEmbed {
             url: "http://h:1234".into(),
             model: "wire-name".into(),
-            token: "secret".into()
+            token: Some("secret".into())
         }
     );
 }
 
 #[test]
-fn a_url_without_a_token_is_refused() {
+fn a_url_without_a_token_resolves_with_no_token() {
     let t = tempfile::tempdir().unwrap();
     write(
         t.path(),
@@ -86,10 +86,11 @@ fn a_url_without_a_token_is_refused() {
         "RHEBOK_EMBED_URL=http://h:1234\nRHEBOK_EMBED_MODEL=w\n",
         0o600,
     );
-    let err = env_file::resolve(&t.path().join("config.toml"))
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("RHEBOK_EMBED_TOKEN"), "{err}");
+    let got = env_file::resolve(&t.path().join("config.toml"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(got.token, None);
+    assert_eq!(got.model, "w");
 }
 
 #[test]
@@ -112,7 +113,7 @@ fn debug_output_never_carries_the_token() {
     let remote = RemoteEmbed {
         url: "http://h:1".into(),
         model: "m".into(),
-        token: "tok-must-not-leak".into(),
+        token: Some("tok-must-not-leak".into()),
     };
     let shown = format!("{remote:?} {remote:#?}");
     assert!(!shown.contains("tok-must-not-leak"), "{shown}");
