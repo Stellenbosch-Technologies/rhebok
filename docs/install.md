@@ -30,7 +30,10 @@ You need:
   on your own machine.
   - On macOS, install the app from [ollama.com](https://ollama.com), or run
     `brew install ollama`, then open it.
-  - On Linux, run `curl -fsSL https://ollama.com/install.sh | sh`.
+  - On Linux, Ollama's installer needs `curl` and `zstd`, and a minimal
+    system such as a container image may not have them. On Ubuntu,
+    install both with `sudo apt install curl zstd`. Then run
+    `curl -fsSL https://ollama.com/install.sh | sh`.
 
   Run `ollama list` to check that it is running.
 - **At least one coding agent.** Claude Code is the main one, and its
