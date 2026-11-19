@@ -397,6 +397,22 @@ raw struct, where MCP's transcript reads as unset; the Settings tab shows it
 in an empty surface cell, marked "shipped default". The hook gate is calibrated together with the transcript weight
 (see `default_threshold`), so do not change one without measuring the other.
 
+**A model with no preset gets gates estimated from its own scores.**
+`embed::calibrate::measure` embeds the 24 built-in `PAIRS` with the real
+embedder, so prefixes and width match indexing. It then places the hook gate
+at `HOOK_SPREADS` and the MCP gate at `MCP_SPREADS` standard deviations from
+the mean of the 552 unrelated pairs. The two constants are where Qwen3's
+0.66/0.55 sit in Qwen3's own probe scores. The anchor is the unrelated side,
+because every model scores the matched probe pairs about 0.88-0.91, far above
+real answer chunks: a midpoint would put Qwen3 at 0.75. Each gate is then
+floored at Qwen3's own on its own (the user's choice: an estimate may tighten
+a gate, never loosen it), so `all-minilm` keeps 0.66/0.55. Changing `PAIRS`
+moves both constants. Re-derive them and run
+`the_built_in_pairs_put_qwen3_back_on_its_own_gates` (`tests/it/embed.rs`,
+ignored, needs Ollama with qwen3). `setup::model::apply_custom` estimates on a
+model change, and on a re-install only while the gates are still Qwen3's.
+`tests/it/setup_model.rs` pins it through a bag-of-words stub Ollama.
+
 **A fresh install pulls only what it needs, and asks separately for the
 rest.** `setup::ollama::ollama_models` returns required models (the embedder
 unless a remote endpoint embeds, and the enrichment model when `[embed]

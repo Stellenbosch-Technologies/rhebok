@@ -1856,6 +1856,7 @@ fn main() -> Result<()> {
                         model,
                         dimensions,
                         first_install,
+                        rhebok::setup::model::measure_gates,
                         &mut report,
                     ),
                     Err(e) => report.warnings.push(format!(
@@ -1881,6 +1882,7 @@ fn main() -> Result<()> {
                     &ep.model,
                     ep.dimensions,
                     first_install,
+                    rhebok::setup::model::measure_gates,
                     &mut report,
                 );
             }

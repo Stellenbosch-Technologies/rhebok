@@ -233,11 +233,21 @@ Unattended, with `--yes`, it reads the model from `RHEBOK_EMBED_MODEL` and
 the token from `RHEBOK_EMBED_TOKEN`, or uses the server's only model if it
 offers just one.
 
-The relevance gates were measured for Qwen3 and EmbeddingGemma 2 only. With
-any other model, rhebok keeps Qwen3's gates (0.66 for the hook, 0.55 for MCP)
-and says so. Every model scores on its own scale, so these gates can let in
-too much or too little. Run `rhebok bench` with a golden set to see where
-they belong for your model, then set `threshold` under `[hook]` and `[mcp]`.
+The relevance gates were measured for Qwen3 and EmbeddingGemma 2 only. Every
+model scores on its own scale: `nomic-embed-text` rates unrelated text around
+0.73, so Qwen3's 0.66 hook gate would let unrelated notes into every prompt.
+For any other model, install therefore estimates the gates. It embeds 24
+built-in pairs of a question and a short note, and measures what the model
+gives a question and a note about something else. It then puts each gate at
+the same point in those scores where Qwen3's gates sit in Qwen3's own. For
+`nomic-embed-text` that gives 0.77 for the hook and 0.70 for MCP. The
+estimate can only make a gate stricter: when it comes out below Qwen3's gate,
+as it does for `all-minilm`, install keeps 0.66 or 0.55 and says so. Install
+prints the estimate. It is a coarse estimate: run `rhebok bench` with a golden
+set to see where the gates belong for your notes, then set `threshold` under
+`[hook]` and `[mcp]`. Install estimates again on a later run only while the
+gates are still Qwen3's, so it never overwrites gates that you set. If the
+model cannot embed the pairs, install keeps Qwen3's gates and says so.
 After your first `rhebok index`, run `rhebok doctor`: it checks the server,
 the model and the dimensions end to end, and whether they agree with the
 vectors in your index. Before that first index, its agreement check fails,

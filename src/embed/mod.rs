@@ -1,3 +1,4 @@
+pub mod calibrate;
 pub mod choice;
 pub mod ollama;
 pub use ollama::OllamaEmbedder;
