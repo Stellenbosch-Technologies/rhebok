@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.2.1 — 2026-11-20
+
+### Install
+
+- **Homebrew.** `brew install stellenbosch-technologies/tap/rhebok`, then
+  `rhebok install`. Under Homebrew, `rhebok update` runs `brew upgrade` and
+  `rhebok uninstall` leaves the keg alone.
+- **Pick the embedding model.** A first interactive install asks which model
+  to use: Qwen3-Embedding 0.6B (the default) or EmbeddingGemma 2.
+  `--embed-model qwen3|gemma` chooses without asking, and the dashboard's
+  Settings tab has the same picker. Each model carries its own relevance
+  gates. EmbeddingGemma 2 needs Ollama 0.40 or newer, and install and
+  `rhebok status` say so on an older Ollama.
+- **Or paste a link.** The same question, and `--embed-model`, take an Ollama
+  library link (`https://ollama.com/library/nomic-embed-text`), a Hugging
+  Face link (pulled as `hf.co/<org>/<repo>`, GGUF repositories only), a bare
+  Ollama model name, or the URL of an OpenAI-compatible embedding server such
+  as LM Studio. For a server, install lists the models it serves and asks for
+  a token, which is now optional. The vector length is read from the model
+  itself.
+- **Gates for a model with no preset.** Install embeds 24 built-in sentence
+  pairs with the chosen model and sets the hook and MCP gates from how it
+  scores unrelated text. They are never set looser than Qwen3's 0.66 and
+  0.55. Install says the estimate is coarse and that `rhebok bench` with a
+  golden set is the real calibration. A model that barely tells related text
+  from unrelated text gets a warning.
+- **EmbeddingGemma 2's hook gate is 0.82**, up from 0.76, which let unrelated
+  notes into the prompt.
+- **The required model download defaults to yes** (`[Y/n]`). The optional
+  model, connecting an agent and purging data still default to no.
+- **Claude Code is found where its installer puts it**, in `~/.local/bin`,
+  when that folder is not on `PATH` yet.
+- **The summary points at the warnings.** An install that printed warnings
+  ends with "Installed, but read the N lines marked ! above". A declined
+  optional model is advice, not a warning.
+- **Re-installing reports the gates `config.toml` holds**, not the preset's.
+- **The install guide names `curl` and `zstd`**, which Ollama's Linux
+  installer needs and a minimal Linux does not have.
+
+### Retrieval
+
+- **Tier 4 keeps its answers in the top five.** `exhaustive`, the tier MCP
+  and `rhebok search` use, diversifies at `mmr_lambda` 0.7 instead of 0.5. At
+  0.5 it pushed the right answer from the top five to positions six to nine
+  in 7 of 179 measured questions.
+
+### Dashboard
+
+- **The Rhebok brand.** New palette, type and icon.
+- **The Health tab** shows what the index holds, recall and search time per
+  tier, and why each skipped file was skipped. **Index now** starts an index
+  and shows its progress.
+- **The status line** no longer repeats "rhebok". `[prehook] status` picks
+  `counts` (the default), `glyph` or `words`.
+
+### Fixes
+
+- **Claude Desktop's config is left alone while Claude Desktop runs.** The
+  running app saves its config back over any change, so connect, disconnect
+  and uninstall now refuse and say to quit it first.
+- **Two backups in the same millisecond** no longer share a name, so the
+  second no longer overwrites the first.
+- **`rhebok status` says Ollama is reachable** when only the optional model
+  is missing.
+
+### Known issue
+
+- EmbeddingGemma 2 (`embeddinggemma-2:270m-bf16-text`) cannot be pulled on
+  Linux, where Ollama says it needs MLX. Use Qwen3 on Linux.
+
+### Community
+
+- Questions and ideas go to
+  [Discussions](https://github.com/Stellenbosch-Technologies/rhebok/discussions),
+  bugs to issues.
+
 ## 0.2.0 — 2026-11-12
 
 br8n is now **rhebok**, and lives at `Stellenbosch-Technologies/rhebok`. This
