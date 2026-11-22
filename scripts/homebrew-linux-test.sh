@@ -36,17 +36,25 @@ if [ -n "$arch" ] && [ "$arch" != "$host_arch" ]; then
   echo "Run it on an $arch machine, or run the homebrew workflow, which tests both on GitHub's runners." >&2
   exit 2
 fi
+env_args="-e EXPECT_FORMULA=0"
 if [ -n "$formula" ]; then
   [ -f "$formula" ] || { echo "no such formula: $formula" >&2; exit 2; }
-  formula_dir="$(cd "$(dirname "$formula")" && pwd)"
-  mount_args="$mount_args -v $formula_dir/$(basename "$formula"):/formula/rhebok.rb:ro"
+  staged="$(mktemp -d)"
+  trap 'rm -rf "$staged"' EXIT
+  cp "$formula" "$staged/rhebok.rb"
+  mount_args="$mount_args -v $staged:/formula:ro"
+  env_args="-e EXPECT_FORMULA=1"
 fi
 
-"$docker_cmd" run --rm -i $platform_args $mount_args ubuntu:24.04 sh -s <<'INNER'
+"$docker_cmd" run --rm -i $platform_args $mount_args $env_args ubuntu:24.04 sh -s <<'INNER'
 set -eu
 step() { printf '\n==> %s\n' "$*"; }
 
 step "system: $(uname -m), $(ldd --version | head -1)"
+if [ "$EXPECT_FORMULA" = 1 ] && [ ! -s /formula/rhebok.rb ]; then
+  echo "FAIL: the formula passed with --formula did not reach the container; Docker cannot see the folder it was staged in"
+  exit 1
+fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq build-essential curl git ca-certificates procps file sudo >/dev/null
@@ -66,9 +74,9 @@ brew --version | head -1
 
 step "tap stellenbosch-technologies/tap"
 brew tap stellenbosch-technologies/tap
-if [ -f /formula/rhebok.rb ]; then
+if [ -s /formula/rhebok.rb ]; then
   cp /formula/rhebok.rb "$(brew --repository stellenbosch-technologies/tap)/Formula/rhebok.rb"
-  echo "testing the local formula, not the published one"
+  echo "testing the formula passed with --formula, not the published one"
 fi
 
 step "brew install rhebok"
