@@ -1,5 +1,5 @@
 # Developer aliases. The binary installs itself; there is nothing else to do.
-.PHONY: install status dev test-dev ci
+.PHONY: install status dev test-dev ci brew-linux
 
 install:
 	cargo build --release && target/release/rhebok install
@@ -15,3 +15,6 @@ test-dev:
 
 ci:
 	scripts/ci-local.sh
+
+brew-linux:
+	scripts/homebrew-linux-test.sh

@@ -134,6 +134,15 @@ brew install stellenbosch-technologies/tap/rhebok
 rhebok install
 ```
 
+On Linux, Homebrew needs a C compiler before it installs anything that is
+not one of its own prebuilt packages, rhebok included. If `brew install` says
+"No developer tools installed", install them and try again. On Ubuntu or
+Debian:
+
+```bash
+sudo apt-get install build-essential
+```
+
 Homebrew downloads the build for your machine and checks it against its
 checksum. It does not mark the program as downloaded from the internet, so a
 Mac runs it without a warning. `rhebok install` then sets rhebok up as
