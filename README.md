@@ -1,8 +1,13 @@
 # rhebok
 
-Local, semantic search over your own knowledge base (notes, papers, web
-clippings and past agent sessions), injected into your coding agent's prompts
-automatically.
+Your coding agent starts every session knowing nothing you have not pasted in.
+The decision you wrote up last month, the fix you found in yesterday's
+session, the paper in your Downloads folder: it can use none of them unless
+you find them and hand them over.
+
+rhebok hands them over. It is local, semantic search over your own knowledge
+base (notes, papers, web clippings and past agent sessions), and it adds what
+is relevant to your coding agent's prompts automatically.
 
 rhebok indexes the folders you point it at, embeds them with a small model
 running on your own machine through [Ollama](https://ollama.com), and serves
@@ -47,6 +52,31 @@ S3 bucket or Google Drive.
   machine, no cloud API, no telemetry and no server to run.
 - **One index for every agent.** Claude Code, Codex, Gemini CLI, Cursor and
   Claude Desktop all use the same knowledge base.
+
+## How it compares
+
+| | rhebok | claude-mem | mem0 | basic-memory | mcp-memory-service |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Searches your notes on every message you send | ✅ ¹ | ❌ ² | ❌ ³ | ❌ ⁴ | ❌ ⁵ |
+| Reads the notes you already have | ✅ | ❌ | ❌ | ✅ | ✅ ⁶ |
+| Remembers your past chats with the agent | ✅ | ✅ | ✅ | ❌ ⁷ | ✅ |
+| Works without a cloud account | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Tests how well it finds *your* notes | ✅ | ❌ | ❌ | ❌ ⁸ | ❌ |
+
+1. It adds notes only when they are a good match, so most messages get none.
+2. Only when a session starts, unless you switch it on.
+3. Only on the first message.
+4. Only when a session starts.
+5. Only when a message sounds like it needs memory, such as "what did we
+   decide".
+6. Only files you add to it.
+7. Only chats you export and import.
+8. Its test kit is built for public datasets.
+
+The others do things rhebok does not. claude-mem writes summaries of what
+your agent did. mem0 can keep your memory in the cloud. basic-memory lets the
+AI write your notes for you. [The full comparison](docs/comparison.md) has
+the details and a source for every answer, checked on 2026-11-20.
 
 ## Install
 
@@ -141,6 +171,8 @@ taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
   index to S3 or Google Drive
 - [Security model](docs/security-model.md): what can reach your prompts, and
   how to limit it
+- [How rhebok compares](docs/comparison.md) with claude-mem, mem0,
+  basic-memory and mcp-memory-service
 - [Troubleshooting](docs/troubleshooting.md)
 - [Cutting a release](docs/releasing.md), for maintainers
 
