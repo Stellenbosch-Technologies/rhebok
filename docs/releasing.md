@@ -140,6 +140,7 @@ brew tap stellenbosch-technologies/tap
 tap="$(brew --repository stellenbosch-technologies/tap)"
 git -C "$tap" pull --ff-only
 scripts/homebrew-formula.sh <version> > rhebok.rb.new && mv rhebok.rb.new "$tap/Formula/rhebok.rb"
+scripts/homebrew-linux-test.sh --formula "$tap/Formula/rhebok.rb"
 export HOMEBREW_NO_AUTO_UPDATE=1
 brew audit --strict --online stellenbosch-technologies/tap/rhebok
 brew upgrade stellenbosch-technologies/tap/rhebok
@@ -147,6 +148,20 @@ brew test stellenbosch-technologies/tap/rhebok
 git -C "$tap" commit -am "The tap installs rhebok <version>"
 git -C "$tap" push
 ```
+
+`scripts/homebrew-linux-test.sh` tests the Linux half of the formula in a new
+`ubuntu:24.04` container, as ADR-0008 requires for install tests. It installs
+Homebrew, installs rhebok from the tap with the formula you pass, runs
+`brew test`, indexes two notes without Ollama and searches them. It needs only
+Docker, and tests the architecture of the machine it runs on. It refuses an
+emulated architecture: under emulation on an Apple-silicon Mac, Homebrew
+rejects the x86_64 CPU and then hangs. With no `--formula` it tests the
+published formula, which is what `make brew-linux` does. Set `DOCKER` to use a
+`docker` that is not on your PATH.
+
+After the tap is pushed, run the `homebrew` workflow
+(`gh workflow run homebrew.yml`). It runs the same script on GitHub's x86_64
+and arm64 Linux runners, so both Linux builds are tested natively.
 
 `HOMEBREW_NO_AUTO_UPDATE` stops `brew upgrade` from pulling the tap over the
 uncommitted formula. Use `brew install` instead of `brew upgrade` if rhebok is
