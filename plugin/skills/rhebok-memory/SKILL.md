@@ -5,7 +5,8 @@ description: Use when the user corrects you ("no, don't…", "always…", "never
 
 # Remembering across sessions
 
-`rhebok_remember` saves a memory; `rhebok_forget` retracts one by id. Memories are
+`rhebok_remember` saves a memory; `rhebok_memories` lists what is saved, with ids;
+`rhebok_forget` retracts one by id. Memories are
 retrieved by relevance on later prompts (they appear inside `<rhebok-context>` with a
 `(memory: kind, date, scope, origin, id …)` line) and lessons are additionally shown
 at the start of every session in a `<rhebok-lessons>` block for the matching project, one
@@ -38,4 +39,5 @@ clearly applies everywhere ("always squash before opening a PR").
 ## Retracting
 
 When the user says a lesson no longer applies, call `rhebok_forget` with the id shown in
-`<rhebok-lessons>` or in the `(memory: …)` line, then confirm what was removed.
+`<rhebok-lessons>` or in the `(memory: …)` line, then confirm what was removed. If
+neither shows it, find the id with `rhebok_memories`.

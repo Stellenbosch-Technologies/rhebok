@@ -45,7 +45,10 @@ read. It is never an instruction the agent must follow.
 - **MCP tool results**: `rhebok_search`, `rhebok_related` and
   `rhebok_context` return excerpts when the agent calls them.
   `rhebok_context` also returns a `hits` list with the title and link of each
-  excerpt in the block.
+  excerpt in the block. `rhebok_memories` returns saved memories with their
+  full text. Every tool also returns its answer as structured content, which
+  carries the same answer as its text reply; the structured hits of
+  `rhebok_search` and `rhebok_related` start with the same fixed `notice`.
 - **`rhebok search` output**: the `/rhebok-search` slash command has the agent
   run `rhebok search` and read what it prints, in the plain form or with
   `--json`.
@@ -89,7 +92,8 @@ see [Ranking weights](configuration.md#ranking-weights).
   host's own wrapper around it, early and make the rest of its text look like
   it came from you or from the system. rhebok does this to titles, headings,
   links and excerpt text in the block, in `rhebok_search` and `rhebok_related`
-  results, in the `hits` list of `rhebok_context`, in both forms of
+  results and their structured content, in the `hits` list of `rhebok_context`,
+  to the titles and text `rhebok_memories` lists, in both forms of
   `rhebok search` output, and to the text of every lesson. In the `hits` list
   and the plain `rhebok search` output, a title, heading or link is also put on
   one line. The `--json` form keeps each field's line breaks, which JSON
