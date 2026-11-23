@@ -46,6 +46,7 @@ mod loaders_markdown;
 mod loaders_transcript;
 mod loaders_web;
 mod mcp;
+mod mcp_bundle;
 mod memory;
 mod memory_distill;
 mod migrate;
