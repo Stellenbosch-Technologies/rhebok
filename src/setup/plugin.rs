@@ -14,10 +14,14 @@ pub fn render(version: &str, bin: &Path) -> Vec<(String, Vec<u8>)> {
     Templates::iter()
         .map(|name| {
             let data = Templates::get(&name).expect("iterated name exists").data;
-            let text = String::from_utf8_lossy(&data)
-                .replace(SHIPPED_VERSION, &stamped)
-                .replace(LAUNCHER, &bin);
-            (name.to_string(), text.into_bytes())
+            let bytes = match std::str::from_utf8(&data) {
+                Ok(text) => text
+                    .replace(SHIPPED_VERSION, &stamped)
+                    .replace(LAUNCHER, &bin)
+                    .into_bytes(),
+                Err(_) => data.into_owned(),
+            };
+            (name.to_string(), bytes)
         })
         .collect()
 }

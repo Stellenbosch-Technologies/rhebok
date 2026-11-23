@@ -89,3 +89,13 @@ fn write_lays_the_tree_out_and_overwrites_on_a_second_call() {
     let second = std::fs::read_to_string(t.path().join(".claude-plugin/plugin.json")).unwrap();
     assert!(second.contains("\"2.0.0\"") && second.contains("/b/rhebok"));
 }
+
+#[test]
+fn a_binary_file_in_the_plugin_is_installed_byte_for_byte() {
+    let files = render("9.8.7", Path::new("/opt/rhebok/bin/rhebok"));
+    let (_, bytes) = files
+        .iter()
+        .find(|(p, _)| p == "icon.png")
+        .expect("icon.png is rendered");
+    assert_eq!(bytes, &std::fs::read("plugin/icon.png").unwrap());
+}

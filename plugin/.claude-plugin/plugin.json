@@ -7,6 +7,9 @@
     "url": "https://github.com/Stellenbosch-Technologies"
   },
   "homepage": "https://github.com/Stellenbosch-Technologies/rhebok",
+  "icon": "./icon.png",
+  "documentationUrl": "https://github.com/Stellenbosch-Technologies/rhebok/tree/main/docs",
+  "supportUrl": "https://github.com/Stellenbosch-Technologies/rhebok/issues",
   "repository": "https://github.com/Stellenbosch-Technologies/rhebok",
   "license": "AGPL-3.0-only",
   "keywords": ["search", "memory", "rag", "notes", "knowledge-base", "local-first", "mcp"],
