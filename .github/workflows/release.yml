@@ -222,6 +222,69 @@ jobs:
             rhebok-${{ matrix.target }}.sha256
           if-no-files-found: error
 
+  bundle:
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: rhebok-*
+          path: dist
+          merge-multiple: true
+      - name: The MCP bundle and its registry entry
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -eu
+          mkdir mcp
+          scripts/mcp-bundle.sh "$VERSION" dist mcp
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcp-bundle
+          path: |
+            mcp/rhebok-mcp.mcpb
+            mcp/server.json
+          if-no-files-found: error
+
+  bundle-check:
+    needs: [bundle]
+    runs-on: ubuntu-24.04
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.8
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mcp-bundle
+          path: mcp
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: The bundle passes the MCPB validator
+        run: |
+          set -eu
+          mkdir bundle
+          unzip -q mcp/rhebok-mcp.mcpb -d bundle
+          npx --yes @anthropic-ai/mcpb@2.1.2 validate bundle
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download and verify mcp-publisher
+        run: |
+          set -eu
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base="https://github.com/modelcontextprotocol/registry/releases/download/$MCP_PUBLISHER_VERSION"
+          curl -fsSL -o "$archive" "$base/$archive"
+          curl -fsSL -o "$archive.sigstore.json" "$base/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/$MCP_PUBLISHER_VERSION" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar -xzf "$archive" mcp-publisher
+      - name: The registry accepts server.json
+        run: ./mcp-publisher validate mcp/server.json
+
   publish:
     # On a push to main carrying an unreleased version, the whole job runs
     # and releases. On a push whose version is already released, `build` is
@@ -239,7 +302,7 @@ jobs:
     # `!cancelled()`, a status function rather than a comparison against
     # `inputs`, so it runs after a failed release step too and cannot fire
     # when the release condition would not.
-    needs: [version, build]
+    needs: [version, build, bundle, bundle-check]
     permissions:
       contents: write
     runs-on: ubuntu-24.04
@@ -254,6 +317,10 @@ jobs:
           pattern: rhebok-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mcp-bundle
+          path: dist
       - name: The installer ships beside the binaries
         run: cp scripts/install.sh dist/install.sh
       - name: Every asset is present
@@ -270,9 +337,11 @@ jobs:
               test -f "$f" || { echo "::error::missing $f"; ls -l dist; exit 1; }
             done
           done
-          test -f dist/install.sh || { echo "::error::missing dist/install.sh"; exit 1; }
+          for f in dist/install.sh dist/rhebok-mcp.mcpb dist/server.json; do
+            test -f "$f" || { echo "::error::missing $f"; ls -l dist; exit 1; }
+          done
           n="$(ls dist | wc -l | tr -d ' ')"
-          [ "$n" -eq 7 ] || { echo "::error::expected exactly 7 files in dist, found $n"; ls -l dist; exit 1; }
+          [ "$n" -eq 9 ] || { echo "::error::expected exactly 9 files in dist, found $n"; ls -l dist; exit 1; }
       - name: Release notes from CHANGELOG.md
         env:
           VERSION: ${{ needs.version.outputs.version }}
@@ -296,7 +365,7 @@ jobs:
           make_latest: true
       - name: Every asset reached the release
         # action-gh-release creates the release before uploading assets, so a
-        # failed upload leaves a published release with fewer than 7 assets
+        # failed upload leaves a published release with fewer than 9 assets
         # that the gate would then treat as done forever. This step turns
         # that into a red job, with the recovery command in the message. It
         # is deliberately non-destructive — it only reads. !cancelled() so it
@@ -321,4 +390,39 @@ jobs:
             echo "::error::cannot read release v$VERSION ($(tr '\n' ' ' <view.err)); if it exists with missing assets, $fix"
             exit 1
           fi
-          [ "$n" -eq 7 ] || { echo "::error::release v$VERSION has $n assets, expected 7; $fix"; exit 1; }
+          [ "$n" -eq 9 ] || { echo "::error::release v$VERSION has $n assets, expected 9; $fix"; exit 1; }
+
+  registry:
+    needs: [version, publish]
+    if: github.ref == 'refs/heads/main' && needs.version.outputs.publish == 'true' && (github.event_name == 'push' || inputs.dry_run == false)
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-24.04
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.8
+    steps:
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Download and verify mcp-publisher
+        run: |
+          set -eu
+          archive="mcp-publisher_linux_amd64.tar.gz"
+          base="https://github.com/modelcontextprotocol/registry/releases/download/$MCP_PUBLISHER_VERSION"
+          curl -fsSL -o "$archive" "$base/$archive"
+          curl -fsSL -o "$archive.sigstore.json" "$base/$archive.sigstore.json"
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/$MCP_PUBLISHER_VERSION" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$archive"
+          tar -xzf "$archive" mcp-publisher
+      - name: The registry entry this release published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --pattern server.json
+      - name: Publish to the MCP registry
+        run: |
+          set -eu
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish

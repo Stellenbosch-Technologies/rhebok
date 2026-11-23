@@ -9,10 +9,10 @@ while they differ, because a plugin installed from a marketplace reads its
 version from that file), add a `## <version> — <date>` section to
 `CHANGELOG.md`, and merge to `main`. The `release` workflow builds every
 target, runs `scripts/release-smoke.sh` against each packaged tarball, and
-publishes `v<version>` with all of them and `install.sh` at once. Then update
-the Homebrew formula, as [Homebrew](#homebrew) describes. A push to `main`
-whose version is already released does nothing. The first release
-needs manual steps; see
+publishes `v<version>` with all of them, `install.sh` and the MCP bundle at
+once. Then update the Homebrew formula, as [Homebrew](#homebrew) describes.
+A push to `main` whose version is already released does nothing. The first
+release needs manual steps; see
 [When the repository goes public](#when-the-repository-goes-public).
 
 The release notes are the `CHANGELOG.md` section whose heading's second word
@@ -22,9 +22,9 @@ later release could match; br8n's is headed `## br8n 0.1.0` for that reason.
 
 A release must carry all three targets (`aarch64-apple-darwin`,
 `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`); the workflow
-refuses to publish one that is missing any of them. It publishes exactly seven
+refuses to publish one that is missing any of them. It publishes exactly nine
 assets: a `rhebok-<target>.tar.gz` and a `rhebok-<target>.sha256` per target,
-and `install.sh`.
+`install.sh`, `rhebok-mcp.mcpb` and `server.json`.
 
 Each archive holds exactly three files, in this order: `rhebok`, `LICENSE`
 and `THIRD-PARTY-NOTICES.md`. `rhebok update` takes the one file named
@@ -49,7 +49,41 @@ any build starts.
 
 To withdraw a bad release: `gh release delete v<version> --cleanup-tag --yes`,
 then push to `main` again. Without `--cleanup-tag` the tag survives, and the
-gate refuses that version on every push until the tag is gone.
+gate refuses that version on every push until the tag is gone. Once the
+`registry` job has published a version, bump the version instead: the
+registry keeps that version's entry, and a rebuilt bundle has a different
+SHA-256 from the one the entry names.
+
+## The MCP registry
+
+`scripts/mcp-bundle.sh` builds `rhebok-mcp.mcpb`, an MCP bundle that holds all
+three builds and a launcher, `server/rhebok-mcp`. The launcher runs the
+rhebok that `rhebok install` placed, and the bundled build for the machine
+only when it finds none, so a bundle installed beside a real install serves
+that install's index. A bundle cannot say which chip a Linux build is for,
+only which operating system, which is why one bundle carries every build.
+
+The script also writes `server.json`, the registry entry: the bundle's
+release URL and its SHA-256. The `bundle` job builds both once, and the
+`publish` job releases those same files. Before that, `bundle-check` runs the
+MCPB validator on the unpacked bundle and the registry's own validation on
+`server.json`, so a dry run proves both. `bundle-check` holds no write
+permission and uploads nothing, because the validator is fetched from npm.
+
+The `registry` job runs after a real release (never on a dry run), downloads
+that `server.json` from the release, and publishes it to
+registry.modelcontextprotocol.io as `io.github.Stellenbosch-Technologies/rhebok`.
+It signs in with the workflow's own OIDC token, which the registry accepts for
+the organization's namespace, so no secret is stored. Anyone who can change
+this workflow on `main` can therefore publish under that namespace. A failed
+`registry` job leaves the release untouched. Rerun only the failed job: a
+"re-run all jobs" sees the release already exists and skips it. Rerunning
+helps only when the failure was transient. If the registry rejected the
+entry itself, fix it and release a new version.
+
+`mcp-publisher` is pinned in the job and verified with cosign before it runs.
+To move to a newer one, change `MCP_PUBLISHER_VERSION` on purpose, to a
+release at least two weeks old.
 
 ## LadybugDB
 
@@ -104,7 +138,7 @@ this order:
 5. When the dry run is green, run it for real:
    `gh workflow run release.yml --ref main -f dry_run=false`. It publishes
    only from `main`, and only if `v<version>` is not released yet. Confirm
-   that the release has all seven assets.
+   that the release has all nine assets.
 6. Update the Homebrew formula, as [Homebrew](#homebrew) below describes.
 
 From then on, a version bump merged to `main` publishes the release with no
