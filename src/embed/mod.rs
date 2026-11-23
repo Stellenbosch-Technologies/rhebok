@@ -95,6 +95,12 @@ pub fn timed_out(e: &anyhow::Error) -> bool {
         .any(reqwest::Error::is_timeout)
 }
 
+pub fn unreachable(e: &anyhow::Error) -> bool {
+    e.chain()
+        .filter_map(|c| c.downcast_ref::<reqwest::Error>())
+        .any(reqwest::Error::is_connect)
+}
+
 pub fn for_config(cfg: &crate::config::EmbedConfig) -> Result<Box<dyn Embedder>> {
     if let Some(e) = &cfg.remote_error {
         anyhow::bail!("{e}");

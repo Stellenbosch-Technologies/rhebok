@@ -71,6 +71,9 @@ pub struct MemoriesArgs {
 pub const DEFAULT_MEMORY_LIMIT: usize = 50;
 pub const MAX_MEMORY_LIMIT: usize = 200;
 
+const NOTHING_INDEXED: &str =
+    "nothing is indexed yet. Run `rhebok index`, or call rhebok_index, then search again";
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct HitOutput {
     /// The document's title.
@@ -93,7 +96,7 @@ pub struct HitsOutput {
     pub notice: String,
     /// The excerpts. Empty when nothing matched.
     pub hits: Vec<HitOutput>,
-    /// Why the search could not run, naming the command that repairs the index. Null on every normal answer, an empty one included.
+    /// Why the search could not run and what to do next: nothing indexed yet, the embedding server not reachable, or an index that must be rebuilt. Never a no-match. Null on every normal answer, an empty one included.
     pub error: Option<String>,
 }
 
@@ -541,10 +544,22 @@ impl RhebokTools {
         self.retriever_for(crate::config::Surface::Mcp, &profile)
             .and_then(|r| r.search_gated(query, &profile, min))
             .map(|hits| {
+                if hits.is_empty() && self.nothing_indexed() {
+                    return Self::cannot_search(NOTHING_INDEXED.to_string());
+                }
                 crate::usage::record_hits(&crate::config::Config::db_path(), &hits);
                 (Self::format_hits(&hits), HitsOutput::from_hits(&hits))
             })
             .unwrap_or_else(Self::search_failure)
+    }
+
+    fn nothing_indexed(&self) -> bool {
+        let cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        cache
+            .main
+            .as_ref()
+            .and_then(|held| held.pack.as_ref())
+            .is_some_and(|pack| pack.rows() == 0)
     }
 
     pub fn context(&self, args: &ContextArgs) -> crate::context::Context {
@@ -624,12 +639,43 @@ impl RhebokTools {
     }
 
     pub fn search_failure(e: anyhow::Error) -> (String, HitsOutput) {
-        if let Some(refused) = e.downcast_ref::<crate::retrieve::PackRefused>() {
-            let message = refused.to_string();
-            return (message.clone(), HitsOutput::refused(message));
+        eprintln!("rhebok: knowledge base unavailable — {e:#}");
+        Self::cannot_search(Self::why_search_failed(&e))
+    }
+
+    fn why_search_failed(e: &anyhow::Error) -> String {
+        if e.downcast_ref::<crate::store::NoIndex>().is_some() {
+            return NOTHING_INDEXED.to_string();
         }
-        eprintln!("rhebok: rhebok_search retrieval unavailable — {e:#}");
-        (Self::format_hits(&[]), HitsOutput::from_hits(&[]))
+        if let Some(embed) = e.downcast_ref::<crate::retrieve::EmbedUnavailable>() {
+            let what = if crate::embed::timed_out(&embed.0) {
+                "the embedding server did not answer in time"
+            } else if crate::embed::unreachable(&embed.0) {
+                "the embedding server is not reachable"
+            } else {
+                "the embedding server could not embed the query"
+            };
+            return format!(
+                "{what}, and the query must be embedded to search ({:#}). Try again once the \
+                 embedding server answers",
+                embed.0
+            );
+        }
+        if let Some(refused) = e.downcast_ref::<crate::retrieve::PackRefused>() {
+            return refused.to_string();
+        }
+        if let Some(missing) = e.downcast_ref::<crate::store::VectorExtensionMissing>() {
+            return missing.to_string();
+        }
+        format!("{e:#}")
+    }
+
+    fn cannot_search(why: String) -> (String, HitsOutput) {
+        let message = format!(
+            "Could not search the knowledge base: {why}. This is not a no-match: it says \
+             nothing about whether the user has notes on the subject."
+        );
+        (message.clone(), HitsOutput::refused(message))
     }
 
     pub fn memories(&self, args: &MemoriesArgs) -> MemoriesOutput {
@@ -707,8 +753,10 @@ impl RhebokTools {
                        default). Hits are ordered most relevant first, and hits below the \
                        MCP relevance gate are dropped, so an empty list means nothing \
                        matched well, not a failure. The text reply is the same hits as \
-                       Markdown excerpts. If the index must be rebuilt, `error` says so and \
-                       names the command."
+                       Markdown excerpts. When the search cannot run (nothing indexed yet, \
+                       the embedding server not reachable, an index that must be rebuilt), \
+                       `error` and the text reply both say why and what to do next; that is \
+                       never a no-match."
     )]
     async fn rhebok_search(
         &self,
@@ -726,8 +774,7 @@ impl RhebokTools {
             tokio::task::spawn_blocking(move || tools.search_reply(&args.query, args.quality))
                 .await
                 .unwrap_or_else(|e| {
-                    eprintln!("rhebok: rhebok_search worker panicked — {e:#}");
-                    (Self::format_hits(&[]), HitsOutput::from_hits(&[]))
+                    Self::search_failure(anyhow::anyhow!("the search stopped unexpectedly: {e}"))
                 });
         Ok(reply(text, &out))
     }
@@ -792,7 +839,7 @@ impl RhebokTools {
                        most 10 hits, alternating adjacent sections and linked notes, in the \
                        same shape as rhebok_search; `relevance` is always 0 because these are \
                        found by link, not scored. An unknown uri or a document with no links \
-                       returns an empty list."
+                       returns an empty list; when the index cannot be read, `error` says why."
     )]
     async fn rhebok_related(
         &self,
@@ -801,15 +848,16 @@ impl RhebokTools {
         // See rhebok_search: blocking store/HTTP calls must run off the async
         // worker threads.
         let config = self.config.clone();
-        let hits = tokio::task::spawn_blocking(move || {
-            crate::related_for(&config, &args.uri).unwrap_or_default()
-        })
-        .await
-        .unwrap_or_default();
-        Ok(reply(
-            Self::format_hits(&hits),
-            &HitsOutput::from_hits(&hits),
-        ))
+        let (text, out) =
+            tokio::task::spawn_blocking(move || match crate::related_for(&config, &args.uri) {
+                Ok(hits) => (Self::format_hits(&hits), HitsOutput::from_hits(&hits)),
+                Err(e) => Self::search_failure(e),
+            })
+            .await
+            .unwrap_or_else(|e| {
+                Self::search_failure(anyhow::anyhow!("the lookup stopped unexpectedly: {e}"))
+            });
+        Ok(reply(text, &out))
     }
 
     #[tool(

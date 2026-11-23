@@ -20,6 +20,12 @@ pub struct VectorExtensionMissing {
     pub dir: std::path::PathBuf,
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("no index at {} — run `rhebok index` first", path.display())]
+pub struct NoIndex {
+    pub path: std::path::PathBuf,
+}
+
 fn explain_vector_load_failure(e: anyhow::Error) -> anyhow::Error {
     let dir = lbug_extension_dir();
     if format!("{e:#}").contains("has not been installed") {
@@ -197,11 +203,12 @@ impl Store {
         // now lives entirely in the pack, whose manifest check refuses a
         // dimension mismatch before any file is opened.
         let _ = dims;
-        anyhow::ensure!(
-            path.join(DB_FILE).exists(),
-            "no index at {} — run `rhebok index` first",
-            path.display()
-        );
+        if !path.join(DB_FILE).exists() {
+            return Err(NoIndex {
+                path: path.to_path_buf(),
+            }
+            .into());
+        }
         let db = Box::new(
             lbug::Database::new(path.join(DB_FILE), system_config().read_only(true))
                 .context("open ladybug database")?,
