@@ -6,12 +6,18 @@ use anyhow::Result;
 use std::path::Path;
 use std::time::Instant;
 
-#[derive(Debug, Clone, serde::Serialize, PartialEq)]
+#[derive(Debug, Clone, serde::Serialize, PartialEq, rmcp::schemars::JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
 pub struct ContextHit {
+    /// The source document's uri. Pass it to rhebok_related as `uri`.
     pub uri: String,
+    /// The source document's title.
     pub title: String,
+    /// 0 to 1, higher is closer to the message.
     pub relevance: f32,
+    /// The id of the excerpt within the index.
     pub chunk_id: String,
+    /// The mounted knowledge base the hit came from, when it is not the user's own index.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mount: Option<String>,
 }
@@ -30,19 +36,30 @@ impl From<&Hit> for ContextHit {
     }
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, PartialEq)]
+#[derive(Debug, Clone, Default, serde::Serialize, PartialEq, rmcp::schemars::JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
 pub struct Context {
+    /// The context to use, as a <rhebok-context> block of excerpts and memories. Null when nothing cleared the relevance gate, which is a normal answer.
     pub block: Option<String>,
+    /// The sources quoted in `block`, most relevant first.
     pub hits: Vec<ContextHit>,
+    /// Why retrieval was degraded or partial, for example an unreachable embedding server or a skipped mount. Empty on a normal answer.
     pub notes: Vec<String>,
+    /// Why no search ran at all, for example a message too short to search on.
     pub skipped: Option<String>,
+    /// How long the lookup took, in milliseconds.
     pub elapsed_ms: u64,
+    /// The time budget the lookup ran under, in milliseconds.
     pub budget_ms: u32,
+    /// Set only for the rhebok-prehook mod: which injector is configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub injector: Option<&'static str>,
+    /// Set only for the rhebok-prehook mod: how it should show its status.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status_style: Option<&'static str>,
+    /// The rhebok project `cwd` belongs to, when it belongs to one.
     pub project: Option<String>,
+    /// A project file found under `cwd` that is ignored because the user has not trusted it yet.
     pub untrusted_project_file: Option<String>,
 }
 

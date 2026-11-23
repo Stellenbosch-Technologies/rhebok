@@ -279,8 +279,10 @@ fn a_tool_call_searches_with_the_mcp_budget_and_the_prehook_with_the_hooks() {
 }
 
 #[test]
-fn the_tool_description_asks_to_be_called_first() {
+fn the_tool_description_says_to_use_it_before_answering_without_a_priority_rule() {
     let text = rhebok::mcp::RhebokTools::tool_description("rhebok_context").unwrap();
-    assert!(text.starts_with("Call this FIRST"), "{text}");
+    assert!(text.contains("before answering"), "{text}");
     assert!(text.contains("<rhebok-context>"), "{text}");
+    assert!(text.contains("rhebok_search"), "{text}");
+    assert!(!text.contains("FIRST"), "{text}");
 }

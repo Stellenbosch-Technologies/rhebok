@@ -14,27 +14,27 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct SearchArgs {
-    /// What to look for, in natural language.
+    /// What to look for, in natural language: a question or a description of the note, not a single keyword. Exact identifiers (an ADR number, an error string) also match by keyword.
     pub query: String,
-    /// Retrieval depth 0-4. Higher is slower and more thorough. Omit for the default.
+    /// Retrieval depth: 0 instant, 1 fast, 2 balanced, 3 thorough (the default), 4 exhaustive. Higher tiers consider more candidates, and tiers 2-4 also follow links between notes, so each step up is slower. Values above 4 are treated as 4.
     pub quality: Option<u8>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ContextArgs {
-    /// The user's message, exactly as they wrote it.
+    /// The user's message, exactly as they wrote it. Do not summarise or rephrase it: the gate is calibrated against real prompts.
     pub message: String,
-    /// Set only by the rhebok-prehook mod: answer without searching unless `[prehook] injector` is `mod`.
+    /// Leave unset. Set only by the rhebok-prehook mod: answer without searching unless `[prehook] injector` is `mod`.
     pub prehook: Option<bool>,
-    /// The Claude Code session id, recorded so the command hook knows the mod is injecting there.
+    /// Leave unset. The Claude Code session id, sent by the rhebok-prehook mod so the command hook knows the mod is injecting there.
     pub session: Option<String>,
-    /// The directory the message was written in, which selects the rhebok project.
+    /// The absolute path of the directory the user is working in. It selects the rhebok project the message belongs to. Omit when unknown.
     pub cwd: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct RelatedArgs {
-    /// The `uri` field of a hit from a previous rhebok_search call.
+    /// The `source:` value of a hit from rhebok_search or rhebok_context, copied exactly (for example `file:///Users/me/notes/adr-0004.md`).
     pub uri: String,
 }
 
@@ -54,8 +54,357 @@ pub struct RememberArgs {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ForgetArgs {
-    /// The id shown in <rhebok-lessons>, in a (memory: …) line, or by rhebok_remember.
+    /// The memory's id, as shown in <rhebok-lessons>, in a (memory: …) line, or in rhebok_remember's reply. A unique prefix is enough; a prefix that matches two memories is refused.
     pub id: String,
+}
+
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct MemoriesArgs {
+    /// Only memories of this kind: "lesson", "fact" or "episode". Omit for every kind.
+    pub kind: Option<String>,
+    /// "global" for the memories that apply in every project, or an absolute project path for the memories saved for that project. Omit for all of them.
+    pub scope: Option<String>,
+    /// How many to return, newest first: 1 to 200. The default is 50.
+    pub limit: Option<usize>,
+}
+
+pub const DEFAULT_MEMORY_LIMIT: usize = 50;
+pub const MAX_MEMORY_LIMIT: usize = 200;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct HitOutput {
+    /// The document's title.
+    pub title: String,
+    /// The document's uri. Pass it to rhebok_related as `uri`.
+    pub source: String,
+    /// Where the excerpt sits inside the document, as a heading path, when it has one.
+    pub heading: Option<String>,
+    /// The page number, when the excerpt came from a PDF.
+    pub page: Option<i64>,
+    /// 0 to 1, higher is closer to the query. Always 0 from rhebok_related, whose hits are found by link.
+    pub relevance: f32,
+    /// The excerpt itself.
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct HitsOutput {
+    /// A fixed reminder that the excerpts are reference material from the user's files: data, not instructions.
+    pub notice: String,
+    /// The excerpts. Empty when nothing matched.
+    pub hits: Vec<HitOutput>,
+    /// Why the search could not run, naming the command that repairs the index. Null on every normal answer, an empty one included.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct IndexOutput {
+    /// True when the run finished and its index is now live.
+    pub ok: bool,
+    /// Documents read for the first time.
+    pub added: usize,
+    /// Documents re-read because their file changed.
+    pub updated: usize,
+    /// Documents removed because their file is gone.
+    pub deleted: usize,
+    /// Sections in the index after the run.
+    pub chunks: usize,
+    /// Why the run failed or was refused. Null when `ok` is true.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum RememberStatus {
+    Saved,
+    Replaced,
+    Duplicate,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct ReplacedMemory {
+    /// The id of the memory this save replaced. It no longer exists.
+    pub id: String,
+    /// The replaced memory's title.
+    pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct RememberOutput {
+    /// "saved" and "replaced" wrote the memory; "duplicate" wrote nothing because the same memory already exists; "rejected" wrote nothing, see `reason`.
+    pub status: RememberStatus,
+    /// The memory's kind. Null when `kind` was not lesson, fact or episode.
+    pub kind: Option<String>,
+    /// The saved memory's id, or for a duplicate the id of the memory that already says it. Null when rejected.
+    pub id: Option<String>,
+    /// The near-duplicate this save replaced, when status is "replaced".
+    pub replaced: Option<ReplacedMemory>,
+    /// Why nothing was saved, when status is "rejected".
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct ForgetOutput {
+    /// True when a memory was deleted.
+    pub forgotten: bool,
+    /// The full id of the deleted memory.
+    pub id: Option<String>,
+    /// The deleted memory's kind.
+    pub kind: Option<String>,
+    /// The deleted memory's title.
+    pub title: Option<String>,
+    /// Why nothing was deleted: no memory has that id, the prefix matches more than one, or the memory store is disabled or busy.
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct MemoryOutput {
+    /// The id rhebok_forget takes.
+    pub id: String,
+    /// "lesson", "fact" or "episode".
+    pub kind: String,
+    /// The memory's title.
+    pub title: String,
+    /// The memory's full text.
+    pub text: String,
+    /// "global", or the absolute path of the project it was saved for.
+    pub scope: String,
+    /// Who saved it: "user", "claude" or "distill" (distilled from a finished session).
+    pub origin: String,
+    /// 0 to 100.
+    pub confidence: u8,
+    /// When it was saved, in Unix seconds.
+    pub created: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct MemoriesOutput {
+    /// The matching memories, newest first, at most `limit` of them.
+    pub memories: Vec<MemoryOutput>,
+    /// How many memories matched before `limit` was applied.
+    pub total: usize,
+    /// Why nothing could be listed: the memory store is disabled or unreadable, or an argument was invalid. Null on every normal answer, an empty one included.
+    pub error: Option<String>,
+}
+
+impl HitsOutput {
+    pub fn from_hits(hits: &[Hit]) -> Self {
+        let safe = crate::budget::escape_reserved_tags;
+        Self {
+            notice: crate::budget::CONTEXT_PREAMBLE.trim_end().to_string(),
+            hits: hits
+                .iter()
+                .map(|h| HitOutput {
+                    title: safe(&h.title),
+                    source: safe(&h.uri),
+                    heading: (!h.heading_path.is_empty()).then(|| safe(&h.heading_path)),
+                    page: h.page_no,
+                    relevance: h.relevance,
+                    text: safe(&h.text),
+                })
+                .collect(),
+            error: None,
+        }
+    }
+
+    pub fn refused(message: String) -> Self {
+        Self {
+            error: Some(message),
+            ..Self::from_hits(&[])
+        }
+    }
+}
+
+impl IndexOutput {
+    pub fn from_run(run: Result<crate::index::IndexStats>) -> Self {
+        match run {
+            Ok(s) => Self {
+                ok: true,
+                added: s.added,
+                updated: s.updated,
+                deleted: s.deleted,
+                chunks: s.chunks,
+                error: None,
+            },
+            Err(e) => Self::failed(format!("{e:#}")),
+        }
+    }
+
+    pub fn failed(error: String) -> Self {
+        Self {
+            ok: false,
+            added: 0,
+            updated: 0,
+            deleted: 0,
+            chunks: 0,
+            error: Some(error),
+        }
+    }
+
+    pub fn describe(&self) -> String {
+        match &self.error {
+            None => format!(
+                "indexed: {} added, {} updated, {} chunks",
+                self.added, self.updated, self.chunks
+            ),
+            Some(e) => format!("index failed: {e}"),
+        }
+    }
+}
+
+impl RememberOutput {
+    pub fn from_outcome(kind: crate::memory::MemoryKind, outcome: &crate::memory::Outcome) -> Self {
+        use crate::memory::Outcome;
+        let written = |status, id: &str| Self {
+            status,
+            kind: Some(kind.as_str().to_string()),
+            id: Some(id.to_string()),
+            replaced: None,
+            reason: None,
+        };
+        match outcome {
+            Outcome::Saved { id } => written(RememberStatus::Saved, id),
+            Outcome::Replaced {
+                id,
+                previous,
+                previous_title,
+            } => Self {
+                replaced: Some(ReplacedMemory {
+                    id: previous.clone(),
+                    title: previous_title.clone(),
+                }),
+                ..written(RememberStatus::Replaced, id)
+            },
+            Outcome::Duplicate { of } => written(RememberStatus::Duplicate, of),
+            Outcome::Rejected(why) => Self::rejected(Some(kind), why.clone()),
+        }
+    }
+
+    pub fn rejected(kind: Option<crate::memory::MemoryKind>, reason: String) -> Self {
+        Self {
+            status: RememberStatus::Rejected,
+            kind: kind.map(|k| k.as_str().to_string()),
+            id: None,
+            replaced: None,
+            reason: Some(reason),
+        }
+    }
+}
+
+impl ForgetOutput {
+    pub fn from_result(result: Result<crate::memory::Memory>) -> Self {
+        match result {
+            Ok(m) => Self {
+                forgotten: true,
+                id: Some(m.id),
+                kind: Some(m.facts.kind.as_str().to_string()),
+                title: Some(m.title),
+                reason: None,
+            },
+            Err(e) => Self::refused(format!("{e:#}")),
+        }
+    }
+
+    pub fn refused(reason: String) -> Self {
+        Self {
+            forgotten: false,
+            id: None,
+            kind: None,
+            title: None,
+            reason: Some(reason),
+        }
+    }
+
+    pub fn describe(&self) -> String {
+        match (&self.id, &self.kind, &self.title, &self.reason) {
+            (Some(id), Some(kind), Some(title), None) => format!("Forgot {kind} {id}: {title}"),
+            (_, _, _, reason) => format!("Nothing forgotten: {}", reason.as_deref().unwrap_or("")),
+        }
+    }
+}
+
+impl MemoriesOutput {
+    fn failed(error: String) -> Self {
+        Self {
+            memories: Vec::new(),
+            total: 0,
+            error: Some(error),
+        }
+    }
+}
+
+pub fn memories_at(cfg: &Config, root: &Path, args: &MemoriesArgs) -> MemoriesOutput {
+    if !cfg.memory.enabled {
+        return MemoriesOutput::failed(crate::memory::DISABLED.to_string());
+    }
+    let kind = match args
+        .kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+    {
+        None => None,
+        Some(k) => match crate::memory::MemoryKind::parse(k) {
+            Some(kind) => Some(kind),
+            None => {
+                return MemoriesOutput::failed(format!(
+                    "kind must be lesson, fact or episode, got `{k}`"
+                ))
+            }
+        },
+    };
+    let scope = args
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let global_only = scope == Some("global");
+    let filter = crate::memory::Filter {
+        kind,
+        project: scope.filter(|_| !global_only).map(std::path::PathBuf::from),
+    };
+    let listed = match crate::memory::list_at(root, &filter) {
+        Ok(listed) => listed,
+        Err(e) => return MemoriesOutput::failed(format!("{e:#}")),
+    };
+    let matching: Vec<crate::memory::Memory> = listed
+        .into_iter()
+        .filter(|m| !global_only || m.facts.project.is_none())
+        .collect();
+    let limit = args
+        .limit
+        .unwrap_or(DEFAULT_MEMORY_LIMIT)
+        .clamp(1, MAX_MEMORY_LIMIT);
+    let safe = crate::budget::escape_reserved_tags;
+    MemoriesOutput {
+        total: matching.len(),
+        memories: matching
+            .into_iter()
+            .take(limit)
+            .map(|m| MemoryOutput {
+                id: m.id,
+                kind: m.facts.kind.as_str().to_string(),
+                title: safe(&m.title),
+                text: safe(&m.text),
+                scope: m.facts.project.unwrap_or_else(|| "global".to_string()),
+                origin: m.facts.origin.as_str().to_string(),
+                confidence: m.facts.confidence,
+                created: m.facts.created,
+            })
+            .collect(),
+        error: None,
+    }
+}
+
+fn reply<T: serde::Serialize>(text: String, structured: &T) -> CallToolResult {
+    let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
+    result.structured_content = serde_json::to_value(structured).ok();
+    result
+}
+
+fn output_schema<T: schemars::JsonSchema + 'static>() -> Arc<JsonObject> {
+    rmcp::handler::server::common::schema_for_output::<T>()
 }
 
 pub fn resolve_remember(
@@ -169,6 +518,10 @@ impl RhebokTools {
     }
 
     pub fn search(&self, query: &str, quality: Option<u8>) -> String {
+        self.search_reply(query, quality).0
+    }
+
+    pub fn search_reply(&self, query: &str, quality: Option<u8>) -> (String, HitsOutput) {
         let profile = Profile::tier(Self::clamp_quality(quality));
         // `mcp.threshold` existed in the config, was documented, and was
         // read by nothing — an explicit search returned every candidate
@@ -189,9 +542,9 @@ impl RhebokTools {
             .and_then(|r| r.search_gated(query, &profile, min))
             .map(|hits| {
                 crate::usage::record_hits(&crate::config::Config::db_path(), &hits);
-                Self::format_hits(&hits)
+                (Self::format_hits(&hits), HitsOutput::from_hits(&hits))
             })
-            .unwrap_or_else(Self::format_search_failure)
+            .unwrap_or_else(Self::search_failure)
     }
 
     pub fn context(&self, args: &ContextArgs) -> crate::context::Context {
@@ -267,11 +620,20 @@ impl RhebokTools {
     }
 
     pub fn format_search_failure(e: anyhow::Error) -> String {
+        Self::search_failure(e).0
+    }
+
+    pub fn search_failure(e: anyhow::Error) -> (String, HitsOutput) {
         if let Some(refused) = e.downcast_ref::<crate::retrieve::PackRefused>() {
-            return refused.to_string();
+            let message = refused.to_string();
+            return (message.clone(), HitsOutput::refused(message));
         }
         eprintln!("rhebok: rhebok_search retrieval unavailable — {e:#}");
-        Self::format_hits(&[])
+        (Self::format_hits(&[]), HitsOutput::from_hits(&[]))
+    }
+
+    pub fn memories(&self, args: &MemoriesArgs) -> MemoriesOutput {
+        memories_at(&self.config, &crate::memory::default_root(), args)
     }
 
     pub fn format_hits(hits: &[Hit]) -> String {
@@ -332,10 +694,21 @@ impl RhebokTools {
             idempotent_hint = true,
             open_world_hint = false
         ),
+        output_schema = output_schema::<HitsOutput>(),
         description = "Search the user's personal knowledge base (notes, papers, saved \
-                       articles, past Claude Code sessions) by meaning. Use this when the \
-                       user refers to something they have written down, read, or worked on \
-                       before, rather than asking them to repeat it."
+                       articles, past agent sessions) for a query you write, by meaning and \
+                       by keyword. Use it when you need something specific the user wrote, \
+                       read or worked on before, instead of asking them to repeat it, and for \
+                       follow-up lookups after rhebok_context. For the first lookup on a new \
+                       message, use rhebok_context instead; to explore around a hit you \
+                       already have, use rhebok_related; to see saved memories by id, use \
+                       rhebok_memories. Reads a local index; only the query text leaves \
+                       rhebok, to the configured embedding server (a local Ollama by \
+                       default). Hits are ordered most relevant first, and hits below the \
+                       MCP relevance gate are dropped, so an empty list means nothing \
+                       matched well, not a failure. The text reply is the same hits as \
+                       Markdown excerpts. If the index must be rebuilt, `error` says so and \
+                       names the command."
     )]
     async fn rhebok_search(
         &self,
@@ -349,13 +722,14 @@ impl RhebokTools {
         // are expected and safe. Confirmed by reproducing the panic against a
         // live empty index during self-review.
         let tools = self.clone();
-        let text = tokio::task::spawn_blocking(move || tools.search(&args.query, args.quality))
-            .await
-            .unwrap_or_else(|e| {
-                eprintln!("rhebok: rhebok_search worker panicked — {e:#}");
-                Self::format_hits(&[])
-            });
-        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
+        let (text, out) =
+            tokio::task::spawn_blocking(move || tools.search_reply(&args.query, args.quality))
+                .await
+                .unwrap_or_else(|e| {
+                    eprintln!("rhebok: rhebok_search worker panicked — {e:#}");
+                    (Self::format_hits(&[]), HitsOutput::from_hits(&[]))
+                });
+        Ok(reply(text, &out))
     }
 
     #[tool(
@@ -367,29 +741,35 @@ impl RhebokTools {
             idempotent_hint = true,
             open_world_hint = false
         ),
-        description = "Call this FIRST, before answering, whenever the user's message touches \
-                       their own work: their projects, code, notes, decisions, past sessions, \
-                       people or plans. Pass the user's message verbatim as `message`. It returns \
-                       the excerpts from the user's knowledge base that rhebok would add to the \
-                       message, gated and budgeted like the automatic prompt hook but with more \
-                       time to search. The answer is JSON: `block` is the context to use (null \
-                       when nothing cleared the gate), `hits` lists the sources, and `notes` says \
-                       when retrieval was degraded. Skip it only when a <rhebok-context> block is \
-                       already in the message. Prefer it over rhebok_search for the first lookup, \
-                       and over your own memory of the user."
+        output_schema = output_schema::<crate::context::Context>(),
+        description = "Find the excerpts and saved memories from the user's knowledge base \
+                       that belong with the user's current message, gated and budgeted like \
+                       the automatic prompt hook but with more time to search. Use it before \
+                       answering whenever the message touches the user's own work: their \
+                       projects, code, notes, decisions, past sessions, people or plans. Skip \
+                       it when a <rhebok-context> block is already in the message, or when the \
+                       message is about general knowledge rather than the user's own material. \
+                       Prefer it over rhebok_search for the first lookup and over your own \
+                       memory of the user; use rhebok_search for later, narrower queries you \
+                       write yourself. Pass the user's message verbatim as `message`, plus \
+                       `cwd` when you know the working directory; leave `prehook` and \
+                       `session` unset. Read-only, local, and safe to repeat. A null `block` \
+                       means nothing cleared the gate, which is a normal answer; `notes` says \
+                       when retrieval was degraded, for example when the embedding server was \
+                       unreachable."
     )]
     async fn rhebok_context(
         &self,
         Parameters(args): Parameters<ContextArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let tools = self.clone();
-        let text = tokio::task::spawn_blocking(move || tools.context(&args).to_json())
+        let context = tokio::task::spawn_blocking(move || tools.context(&args))
             .await
             .unwrap_or_else(|e| {
                 eprintln!("rhebok: rhebok_context worker panicked — {e:#}");
-                crate::context::Context::default().to_json()
+                crate::context::Context::default()
             });
-        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
+        Ok(reply(context.to_json(), &context))
     }
 
     #[tool(
@@ -401,9 +781,18 @@ impl RhebokTools {
             idempotent_hint = true,
             open_world_hint = false
         ),
-        description = "Given the uri of a note already found, return notes connected to it \
-                       in the knowledge graph — wikilinks and adjacent sections. Use this to \
-                       follow a thread after rhebok_search finds a starting point."
+        output_schema = output_schema::<HitsOutput>(),
+        description = "List the notes linked to one document you already have, by \
+                       structure rather than by meaning: the sections that follow its opening \
+                       section, the notes it links to by [[wikilink]], and the note that \
+                       replaced it, up to two links away. Use it after rhebok_search or \
+                       rhebok_context returns a starting point, to follow a thread or read \
+                       the surrounding sections. It does not search: to find a document in \
+                       the first place, use rhebok_search. Read-only and local. Returns at \
+                       most 10 hits, alternating adjacent sections and linked notes, in the \
+                       same shape as rhebok_search; `relevance` is always 0 because these are \
+                       found by link, not scored. An unknown uri or a document with no links \
+                       returns an empty list."
     )]
     async fn rhebok_related(
         &self,
@@ -417,9 +806,10 @@ impl RhebokTools {
         })
         .await
         .unwrap_or_default();
-        Ok(CallToolResult::success(vec![ContentBlock::text(
+        Ok(reply(
             Self::format_hits(&hits),
-        )]))
+            &HitsOutput::from_hits(&hits),
+        ))
     }
 
     #[tool(
@@ -431,22 +821,30 @@ impl RhebokTools {
             idempotent_hint = true,
             open_world_hint = false
         ),
-        description = "Re-index the knowledge base, picking up new and changed files."
+        output_schema = output_schema::<IndexOutput>(),
+        description = "Update the knowledge base index from the user's configured sources, \
+                       picking up new, changed and deleted files. Use it when the user has just \
+                       added or edited files and rhebok_search or rhebok_context does not find \
+                       them yet. Do not call it routinely: rhebok already indexes at the start \
+                       of every session. Takes no parameters; what is indexed comes from \
+                       `sources` in the user's rhebok config. Incremental: only files whose \
+                       size or modification time changed are re-read, and unchanged sections \
+                       keep their stored embeddings, so a run with nothing new returns at once. \
+                       New text is embedded through the configured embedding server, which can \
+                       take minutes for many new files; search keeps answering from the \
+                       previous index until the new one is swapped in. Removes documents whose \
+                       source file is gone. Refuses, without changing anything, while another \
+                       index run is in progress, and reports that in `error`."
     )]
     async fn rhebok_index(&self) -> Result<CallToolResult, ErrorData> {
         // See rhebok_search: blocking store/HTTP calls must run off the async
         // worker threads.
         let config = self.config.clone();
-        let msg = tokio::task::spawn_blocking(move || match crate::index_now(&config) {
-            Ok(s) => format!(
-                "indexed: {} added, {} updated, {} chunks",
-                s.added, s.updated, s.chunks
-            ),
-            Err(e) => format!("index failed: {e}"),
-        })
-        .await
-        .unwrap_or_else(|e| format!("index failed: task panicked: {e}"));
-        Ok(CallToolResult::success(vec![ContentBlock::text(msg)]))
+        let out =
+            tokio::task::spawn_blocking(move || IndexOutput::from_run(crate::index_now(&config)))
+                .await
+                .unwrap_or_else(|e| IndexOutput::failed(format!("task panicked: {e}")));
+        Ok(reply(out.describe(), &out))
     }
 
     #[tool(
@@ -458,35 +856,61 @@ impl RhebokTools {
             idempotent_hint = false,
             open_world_hint = false
         ),
-        description = "Save a memory for future sessions: a lesson the user taught you (a correction or rule), \
-                       a durable fact about the user or their setup, or an episode (what happened and what was \
-                       decided). Lessons are shown to you at the start of every session in the matching project; \
-                       everything is also retrieved by relevance on later prompts. Returns the memory's id."
+        output_schema = output_schema::<RememberOutput>(),
+        description = "Save a memory for future sessions: a lesson the user taught you (a \
+                       correction or rule), a durable fact about the user or their setup, or \
+                       an episode (what happened and what was decided). Use it when the user \
+                       corrects you, states a preference, or asks you to remember something; \
+                       do not use it for things already in their notes, which rhebok_search \
+                       finds, or for details that matter only to this conversation. To change a \
+                       memory, save the new wording: a near-duplicate of the same kind replaces \
+                       the old one, and an exact duplicate is not saved again. To check what is \
+                       already saved, use rhebok_memories; to remove a memory, use \
+                       rhebok_forget. Lessons are shown to you at the start of every session in \
+                       the matching project; every kind is also retrieved by relevance on later \
+                       prompts. Saving sends the text to the configured embedding server and is \
+                       rejected while it is unreachable; the memory itself is stored only on \
+                       this machine."
     )]
     async fn rhebok_remember(
         &self,
         Parameters(args): Parameters<RememberArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let config = self.config.clone();
-        let msg = tokio::task::spawn_blocking(move || {
+        let (text, out) = tokio::task::spawn_blocking(move || {
             let cwd = std::env::current_dir().unwrap_or_default();
             match resolve_remember(args, &cwd) {
                 Ok(r) => {
                     let kind = r.kind;
                     match crate::memory::remember(&config, r) {
-                        Ok(outcome) => outcome.describe(kind),
+                        Ok(outcome) => (
+                            outcome.describe(kind),
+                            RememberOutput::from_outcome(kind, &outcome),
+                        ),
                         Err(e) => {
                             eprintln!("rhebok: rhebok_remember failed — {e:#}");
-                            format!("Not saved: {e}")
+                            (
+                                format!("Not saved: {e}"),
+                                RememberOutput::rejected(Some(kind), format!("{e:#}")),
+                            )
                         }
                     }
                 }
-                Err(e) => format!("Not saved: {e}"),
+                Err(e) => (
+                    format!("Not saved: {e}"),
+                    RememberOutput::rejected(None, format!("{e:#}")),
+                ),
             }
         })
         .await
-        .unwrap_or_else(|e| format!("Not saved: worker panicked: {e}"));
-        Ok(CallToolResult::success(vec![ContentBlock::text(msg)]))
+        .unwrap_or_else(|e| {
+            let why = format!("worker panicked: {e}");
+            (
+                format!("Not saved: {why}"),
+                RememberOutput::rejected(None, why),
+            )
+        });
+        Ok(reply(text, &out))
     }
 
     #[tool(
@@ -498,21 +922,61 @@ impl RhebokTools {
             idempotent_hint = true,
             open_world_hint = false
         ),
-        description = "Delete a memory by id, when the user says a lesson or fact no longer applies."
+        output_schema = output_schema::<ForgetOutput>(),
+        description = "Permanently delete one saved memory (a lesson, fact or episode) by its \
+                       id. Use it when the user says a memory is wrong or no longer applies. To \
+                       correct a memory rather than drop it, call rhebok_remember with the new \
+                       wording instead: it replaces the near-duplicate. To find an id, use \
+                       rhebok_memories. This only removes rhebok memories; it never touches the \
+                       user's notes or files, and it cannot remove a hit from rhebok_search. \
+                       There is no undo: the memory is gone from the next prompt's retrieval \
+                       and from session-start lessons, and restoring it means saving it again \
+                       with rhebok_remember. Forgetting an id that is already gone deletes \
+                       nothing and says so in `reason`."
     )]
     async fn rhebok_forget(
         &self,
         Parameters(args): Parameters<ForgetArgs>,
     ) -> Result<CallToolResult, ErrorData> {
         let config = self.config.clone();
-        let msg =
-            tokio::task::spawn_blocking(move || match crate::memory::forget(&config, &args.id) {
-                Ok(m) => format!("Forgot {} {}: {}", m.facts.kind.as_str(), m.id, m.title),
-                Err(e) => format!("Nothing forgotten: {e}"),
-            })
+        let out = tokio::task::spawn_blocking(move || {
+            ForgetOutput::from_result(crate::memory::forget(&config, &args.id))
+        })
+        .await
+        .unwrap_or_else(|e| ForgetOutput::refused(format!("worker panicked: {e}")));
+        Ok(reply(out.describe(), &out))
+    }
+
+    #[tool(
+        title = "List saved memories",
+        annotations(
+            title = "List saved memories",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        ),
+        output_schema = output_schema::<MemoriesOutput>(),
+        description = "List the memories rhebok has saved (lessons, facts and episodes), \
+                       newest first, with their ids, scope and full text. Use it when the user \
+                       asks what you remember about them, before rhebok_forget when you need a \
+                       memory's id, or before rhebok_remember to check whether a rule is \
+                       already saved. It lists by filter, not by meaning: to find the memories \
+                       relevant to a topic, use rhebok_search, which retrieves memories \
+                       alongside notes. Read-only and local; it does not embed anything, so it \
+                       works while the embedding server is down. `total` counts every match, so \
+                       a `total` above the number returned means `limit` cut the list."
+    )]
+    async fn rhebok_memories(
+        &self,
+        Parameters(args): Parameters<MemoriesArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tools = self.clone();
+        let out = tokio::task::spawn_blocking(move || tools.memories(&args))
             .await
-            .unwrap_or_else(|e| format!("Nothing forgotten: worker panicked: {e}"));
-        Ok(CallToolResult::success(vec![ContentBlock::text(msg)]))
+            .unwrap_or_else(|e| MemoriesOutput::failed(format!("worker panicked: {e}")));
+        let text = serde_json::to_string(&out).unwrap_or_else(|_| "{}".to_string());
+        Ok(reply(text, &out))
     }
 }
 
@@ -528,7 +992,8 @@ impl ServerHandler for RhebokTools {
             );
         info.instructions = Some(
             "Semantic search over the user's personal knowledge base, plus durable memory: \
-             rhebok_remember saves lessons, facts and episodes; rhebok_forget retracts one."
+             rhebok_remember saves lessons, facts and episodes; rhebok_memories lists them; \
+             rhebok_forget retracts one."
                 .into(),
         );
         info

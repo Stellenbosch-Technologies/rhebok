@@ -53,9 +53,10 @@ re-embeds every memory with the currently configured model and republishes;
 `export`/`import` move memories as JSON lines, for backup or for carrying them
 to another machine.
 
-From inside Claude Code, two MCP tools drive the same store: `rhebok_remember`
-saves a lesson, fact or episode and returns its id, and `rhebok_forget` deletes
-one by id when you say it no longer applies. `/rhebok-remember <rule>` and
+From inside Claude Code, three MCP tools drive the same store: `rhebok_remember`
+saves a lesson, fact or episode and returns its id, `rhebok_memories` lists
+what is saved (by kind or scope, newest first, with ids), and `rhebok_forget`
+deletes one by id when you say it no longer applies. `/rhebok-remember <rule>` and
 `/rhebok-memories [kind]` are the matching slash commands.
 
 Every lesson that applies to the current project is shown at the start of a
