@@ -111,3 +111,22 @@ fn the_memory_skill_names_every_origin_as_rhebok_renders_it() {
         assert!(s.contains(&rendered), "the skill must name {rendered}");
     }
 }
+
+#[test]
+fn the_directory_listing_fields_point_at_a_png_in_the_plugin_and_https_pages() {
+    let m = read("plugin/.claude-plugin/plugin.json");
+    let icon = m["icon"].as_str().expect("plugin.json names an icon");
+    let path = std::path::Path::new("plugin").join(icon.trim_start_matches("./"));
+    let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    assert!(
+        bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "{} is not a PNG",
+        path.display()
+    );
+    for field in ["documentationUrl", "supportUrl"] {
+        let url = m[field]
+            .as_str()
+            .unwrap_or_else(|| panic!("{field} is set"));
+        assert!(url.starts_with("https://"), "{field} is {url}");
+    }
+}
