@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.2.2 — 2026-11-25
+
+### MCP
+
+- **Every tool returns structured output.** All seven tools declare an
+  output schema and return their answer as `structuredContent` beside the
+  text reply. An agent that reads only the text sees what it saw before.
+- **New `rhebok_memories` tool.** It lists saved memories by kind and scope,
+  newest first, with their ids. It reads only the memory pack, so it works
+  while the embedding server is down.
+- **`rhebok_search` says why it could not search.** A missing index, an empty
+  index, an embedding server that is not reachable and a timeout each get
+  their own reply and next step. Before, every one of them read "No matching
+  notes found", which told the agent the user had no notes on the subject.
+  `rhebok_related` is fixed the same way.
+- **Tool descriptions say when to use each tool and when not to**, and
+  `rhebok_context` no longer opens with "Call this FIRST".
+
+### Native dashboard (macOS, build from source)
+
+- **`rhebok-app` is a native macOS dashboard** with every tab of the web
+  dashboard: Health, Search, Memories, Integrations, Settings, Graph and
+  first-run setup. It looks and works like the web one, and the web
+  dashboard is unchanged. Both now run on one shared core.
+- **The release archives do not include it yet.** Build it from `app/` with
+  `cargo build --release` (Rust 1.98 or newer) and run
+  `app/target/release/rhebok-app`.
+  `rhebok app` starts it only when `rhebok-app` sits beside the `rhebok`
+  binary or in rhebok's `bin/` folder.
+
+### Distribution
+
+- **Each release ships an MCP bundle**, `rhebok-mcp.mcpb`, and publishes
+  rhebok to the official MCP registry as
+  `io.github.Stellenbosch-Technologies/rhebok`. The bundle runs an installed
+  rhebok when there is one.
+- **The plugin has an icon** (512 pixels square) and links to the docs and
+  the issues.
+- **`rhebok install` copies binary plugin files unchanged.** It used to read
+  every plugin file as text, which corrupted the icon.
+
+### Security
+
+- **`url` is 2.5.9**, which fixes RUSTSEC-2026-0592, a stack overflow on
+  nested `blob:` URLs.
+- Dependency updates for cargo, the dashboard, the e2e suite and the
+  release workflow's cosign installer.
+
 ## 0.2.1 — 2026-11-20
 
 ### Install
