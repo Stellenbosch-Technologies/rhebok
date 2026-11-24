@@ -120,7 +120,7 @@ cat > "$stage/server.json" <<SERVER
     {
       "src": "https://raw.githubusercontent.com/$repo/v$version/plugin/icon.png",
       "mimeType": "image/png",
-      "sizes": ["128x128"]
+      "sizes": ["512x512"]
     }
   ],
   "packages": [

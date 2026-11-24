@@ -152,6 +152,22 @@ fn server_json_names_the_release_asset_and_its_digest() {
     assert_eq!(p["fileSha256"], digest.as_str());
 }
 
+fn png_size(path: &str) -> String {
+    let bytes = std::fs::read(path).unwrap();
+    let width = u32::from_be_bytes(bytes[16..20].try_into().unwrap());
+    let height = u32::from_be_bytes(bytes[20..24].try_into().unwrap());
+    format!("{width}x{height}")
+}
+
+#[test]
+fn server_json_declares_the_size_the_icon_really_has_and_it_is_512_square() {
+    let (_t, out) = built();
+    let s = json(&out.join("server.json"));
+    let size = png_size("plugin/icon.png");
+    assert_eq!(size, "512x512");
+    assert_eq!(s["icons"][0]["sizes"][0], size.as_str());
+}
+
 fn launch(root: &Path, home: &Path) -> String {
     let o = Command::new(root.join("server/rhebok-mcp"))
         .arg("mcp")
