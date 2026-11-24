@@ -1,0 +1,6 @@
+{
+  "body": {
+    "error": "kind `wish` is not lesson, fact or episode"
+  },
+  "status": 400
+}

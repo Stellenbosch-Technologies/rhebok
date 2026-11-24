@@ -1,0 +1,6 @@
+{
+  "body": {
+    "error": "body is not the expected JSON"
+  },
+  "status": 400
+}

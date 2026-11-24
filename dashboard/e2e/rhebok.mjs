@@ -32,6 +32,18 @@ export class Sandbox {
     return s;
   }
 
+  static async ready() {
+    const s = await Sandbox.create();
+    try {
+      await s.run("index");
+      await s.startDashboard();
+    } catch (e) {
+      s.close();
+      throw e;
+    }
+    return s;
+  }
+
   corpusDocuments() {
     return readdirSync(this.corpus, { recursive: true }).filter((f) => String(f).endsWith(".md")).length;
   }

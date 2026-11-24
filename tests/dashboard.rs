@@ -243,6 +243,7 @@ fn search_endpoint_explains_the_pipeline() {
     // the query go through the fake Ollama — no network, no live model.
     let addr = server_over_temp_corpus();
     let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
     let (status, body) = get(addr, "/api/search?q=pgbouncer%20transaction&tier=1");
     assert_eq!(status, 200);
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
@@ -261,6 +262,7 @@ fn search_endpoint_explains_the_pipeline() {
 fn every_search_hit_names_the_section_it_came_from_and_bm25_keeps_its_own_score() {
     let addr = server_over_temp_corpus();
     let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
     let (status, body) = get(addr, "/api/search?q=pgbouncer%20transaction&tier=1");
     assert_eq!(status, 200);
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
@@ -847,6 +849,7 @@ fn the_graph_carries_memory_nodes_and_their_real_edges() {
 fn memory_reach_reports_what_one_memory_pulls_in() {
     let addr = server_over_temp_corpus();
     let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
     let root = root_of_shared_db().join("memory");
     let _cleanup = RemoveOnDrop(root.clone());
     let cfg = rhebok::config::Config::load();
@@ -929,6 +932,7 @@ fn a_post_body_is_read_and_an_oversized_one_is_refused() {
 fn saving_a_memory_from_the_dashboard_creates_then_edits_it() {
     let addr = server_over_temp_corpus();
     let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
     let root = root_of_shared_db().join("memory");
     let _cleanup = RemoveOnDrop(root.clone());
 
@@ -1218,6 +1222,7 @@ fn write_private(path: &std::path::Path, text: &str) {
 fn the_config_view_shows_file_effective_and_defaults_and_never_a_secret() {
     let addr = server_over_temp_corpus();
     let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
     let restore = RestoreConfig::take();
     let mut text = String::from_utf8(restore.original.clone()).unwrap();
     text.push_str("token = \"sk-config-sentinel\"\n\n[backup.s3]\nbucket = \"b\"\nregion = \"r\"\naws_secret_access_key = \"sk-aws-sentinel\"\n");
@@ -1402,6 +1407,7 @@ fn checking_a_change_reports_its_errors_and_writes_nothing() {
 fn testing_the_embedder_reports_an_unreachable_endpoint_without_failing() {
     let addr = server_over_temp_corpus();
     let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
     let restore = RestoreConfig::take();
     let (status, body) = post_body(addr, "/api/embed/test", None, "{}");
     assert_eq!(status, 200, "{body}");
@@ -1436,6 +1442,7 @@ fn the_embedding_endpoint_is_written_to_the_env_file_and_its_token_is_write_only
     use std::os::unix::fs::PermissionsExt;
     let addr = server_over_temp_corpus();
     let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
     let restore = RestoreConfig::take();
     let env = rhebok::env_file::env_path(&restore.path);
     let origin = own_origin(addr);
@@ -1520,6 +1527,7 @@ fn starting_an_index_is_refused_while_one_runs() {
 fn a_saved_config_change_reaches_the_read_routes_without_a_restart() {
     let addr = server_over_temp_corpus();
     let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
     let _restore = RestoreConfig::take();
     let search = "/api/search?q=pgbouncer%20transaction";
     let (_, before) = get(addr, search);
@@ -1547,6 +1555,7 @@ fn a_saved_config_change_reaches_the_read_routes_without_a_restart() {
 #[test]
 fn the_index_run_status_is_empty_before_any_run() {
     let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
     let (status, body) = get(addr, "/api/index");
     assert_eq!(status, 200, "{body}");
     assert!(json(&body)["run"].is_null(), "{body}");
@@ -1623,6 +1632,7 @@ fn check<'a>(v: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
 fn the_install_view_names_each_failed_check_with_its_fix_and_the_config_errors() {
     let addr = server_over_temp_corpus();
     let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
     let restore = RestoreConfig::take();
     let env = agent_env(&root_of_shared_db());
     let exe = std::env::current_exe().unwrap();
@@ -1865,5 +1875,1047 @@ fn a_post_naming_another_host_is_refused_without_waiting_for_its_body() {
     assert!(
         buf.starts_with("HTTP/1.1 421 "),
         "a foreign Host must be answered at once, before the 100-byte body it promised: {buf:?}"
+    );
+}
+
+fn scrub_machine(s: &str) -> String {
+    let exe = std::env::current_exe().unwrap().display().to_string();
+    let s = s.replace(&exe, "<exe>");
+    let mut out = String::new();
+    let mut rest = s.as_str();
+    while let Some(at) = rest.find("(os error ") {
+        let cut = at + "(os error ".len();
+        out.push_str(&rest[..cut]);
+        let digits = rest[cut..].chars().take_while(char::is_ascii_digit).count();
+        out.push_str("<n>");
+        rest = &rest[cut + digits..];
+    }
+    out.push_str(rest);
+    scrub_ports(&out)
+}
+
+fn scrub_ports(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(at) = rest.find("127.0.0.1:") {
+        let cut = at + "127.0.0.1:".len();
+        out.push_str(&rest[..cut]);
+        let digits = rest[cut..].chars().take_while(char::is_ascii_digit).count();
+        if digits > 0 {
+            out.push_str("<port>");
+        }
+        rest = &rest[cut + digits..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn normalise(v: serde_json::Value, root: &std::path::Path) -> serde_json::Value {
+    use serde_json::Value;
+    let root = root.display().to_string();
+    let walk = |v: Value| normalise(v, std::path::Path::new(&root));
+    match v {
+        Value::Object(map) => Value::Object(
+            map.into_iter()
+                .map(|(k, v)| {
+                    let volatile_number = v.is_number()
+                        && (matches!(
+                            k.as_str(),
+                            "pid" | "latency_ms" | "elapsed_ms" | "mtime" | "concurrency"
+                        ) || k.ends_with("_at")
+                            || (k.ends_with("_secs") && k != "distill_idle_secs"));
+                    let value = if volatile_number {
+                        Value::String("<n>".into())
+                    } else if k == "etag" && v.is_string() {
+                        Value::String("<etag>".into())
+                    } else {
+                        walk(v)
+                    };
+                    (k, value)
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(items.into_iter().map(walk).collect()),
+        Value::String(s) if s == env!("CARGO_PKG_VERSION") => Value::String("<version>".into()),
+        Value::String(s) => {
+            let s = if s.starts_with(&root) {
+                format!("<root>{}", &s[root.len()..])
+            } else {
+                s.replace(&root, "<root>")
+            };
+            Value::String(scrub_machine(&s))
+        }
+        other => other,
+    }
+}
+
+fn snapshot(name: &str, status: u16, body: &str) {
+    let parsed: serde_json::Value = serde_json::from_str(body)
+        .unwrap_or_else(|e| panic!("snapshot {name}: body is not JSON ({e}): {body}"));
+    let root = root_of_shared_db();
+    let actual = serde_json::json!({
+        "status": status,
+        "body": normalise(parsed, &root),
+    });
+    let mut text = serde_json::to_string_pretty(&actual).unwrap();
+    text.push('\n');
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/snapshots/dashboard")
+        .join(format!("{name}.json"));
+    if std::env::var("RHEBOK_UPDATE_SNAPSHOTS").as_deref() == Ok("1") {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &text).unwrap();
+        return;
+    }
+    let expected = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+        panic!(
+            "missing snapshot {}; run with RHEBOK_UPDATE_SNAPSHOTS=1",
+            path.display()
+        )
+    });
+    assert_eq!(text, expected, "snapshot {name} changed");
+}
+
+fn snapshot_get(name: &str, path: &str) {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let (status, body) = get(addr, path);
+    snapshot(name, status, &body);
+}
+
+fn snapshot_post(name: &str, path: &str, body: &str) {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let _cleanup = RemoveOnDrop(root_of_shared_db().join("memory"));
+    let (status, out) = post_body(addr, path, Some(&own_origin(addr)), body);
+    snapshot(name, status, &out);
+}
+
+fn a_lesson() -> &'static str {
+    r#"{"kind":"lesson","text":"Never comment code unless asked.","scope":"global","confidence":100}"#
+}
+
+fn remembered_fact(root: &std::path::Path) -> String {
+    let cfg = rhebok::config::Config::load();
+    let out = rhebok::memory::remember_at(
+        root,
+        &cfg,
+        Box::new(rhebok::embed::OllamaEmbedder::new(&cfg.embed)),
+        rhebok::memory::Remember {
+            kind: rhebok::memory::MemoryKind::Fact,
+            text: "PgBouncer runs in transaction mode in this deployment.".into(),
+            title: None,
+            project: None,
+            confidence: 100,
+            origin: rhebok::memory::Origin::User,
+            session: None,
+            source_hash: None,
+            source_stamp: None,
+            created: Some(1_767_225_600),
+        },
+    )
+    .unwrap();
+    let rhebok::memory::Outcome::Saved { id } = out else {
+        panic!("{out:?}")
+    };
+    id
+}
+
+#[test]
+fn snapshot_stats() {
+    snapshot_get("stats", "/api/stats");
+}
+
+#[test]
+fn snapshot_progress() {
+    snapshot_get("progress", "/api/progress");
+}
+
+#[test]
+fn snapshot_version() {
+    snapshot_get("version", "/api/version");
+}
+
+#[test]
+fn snapshot_graph() {
+    snapshot_get("graph", "/api/graph");
+}
+
+#[test]
+fn snapshot_document_found() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let (_, graph) = get(addr, "/api/graph");
+    let id = json(&graph)["nodes"][0]["id"].as_str().unwrap().to_string();
+    let (status, body) = get(addr, &format!("/api/document?id={id}"));
+    snapshot("document.found", status, &body);
+}
+
+#[test]
+fn snapshot_document_missing() {
+    snapshot_get("document.missing", "/api/document?id=no-such-document");
+}
+
+#[test]
+fn snapshot_search_hits() {
+    snapshot_get(
+        "search.hits",
+        "/api/search?q=pgbouncer%20transaction&tier=1",
+    );
+}
+
+#[test]
+fn snapshot_search_embedder_unreachable() {
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let dead = {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap()
+    };
+    let mut cfg = rhebok::config::Config::load();
+    cfg.embed.ollama_url = format!("http://{dead}");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || rhebok::dashboard::serve_on(cfg, listener));
+    let (status, body) = get(addr, "/api/search?q=pgbouncer&tier=0");
+    snapshot("search.embedder_unreachable", status, &body);
+}
+
+#[test]
+fn snapshot_memories() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let root = root_of_shared_db().join("memory");
+    let _cleanup = RemoveOnDrop(root.clone());
+    let (status, body) = get(addr, "/api/memories");
+    snapshot("memories.empty", status, &body);
+    remembered_fact(&root);
+    let (status, body) = get(addr, "/api/memories");
+    snapshot("memories.one", status, &body);
+}
+
+#[test]
+fn snapshot_memory_reach() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let root = root_of_shared_db().join("memory");
+    let _cleanup = RemoveOnDrop(root.clone());
+    let id = remembered_fact(&root);
+    let (status, body) = get(addr, &format!("/api/memory/reach?id={id}"));
+    snapshot("memory_reach.found", status, &body);
+    let (status, body) = get(addr, "/api/memory/reach?id=000000000000");
+    snapshot("memory_reach.unknown", status, &body);
+}
+
+#[test]
+fn snapshot_ignore_preview() {
+    snapshot_get(
+        "ignore_preview",
+        "/api/ignore/preview?pattern=workflows%2F*%2Fjournal.jsonl",
+    );
+}
+
+#[test]
+fn snapshot_config() {
+    snapshot_get("config", "/api/config");
+}
+
+#[test]
+fn snapshot_index_no_run() {
+    snapshot_get("index.no_run", "/api/index");
+}
+
+#[test]
+fn snapshot_install() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let (status, body) = get(addr, "/api/install");
+    let mut v = json(&body);
+    for c in v["checks"].as_array_mut().unwrap() {
+        if matches!(c["name"].as_str(), Some("path" | "claude")) {
+            for key in ["ok", "detail", "fix"] {
+                if c.get(key).is_some() {
+                    c[key] = serde_json::json!("<depends on this machine>");
+                }
+            }
+        }
+    }
+    snapshot("install", status, &v.to_string());
+}
+
+#[test]
+fn snapshot_agents() {
+    snapshot_get("agents", "/api/agents");
+}
+
+#[test]
+fn snapshot_unknown_api_path() {
+    snapshot_get("unknown", "/api/x");
+}
+
+#[test]
+fn snapshot_memory_save_created() {
+    snapshot_post("memory_save.created", "/api/memory/save", a_lesson());
+}
+
+#[test]
+fn snapshot_memory_save_duplicate() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let _cleanup = RemoveOnDrop(root_of_shared_db().join("memory"));
+    let (first, body) = post_body(addr, "/api/memory/save", None, a_lesson());
+    assert_eq!(first, 200, "{body}");
+    let (status, body) = post_body(addr, "/api/memory/save", None, a_lesson());
+    snapshot("memory_save.duplicate", status, &body);
+}
+
+#[test]
+fn snapshot_memory_save_bad_kind() {
+    snapshot_post(
+        "memory_save.bad_kind",
+        "/api/memory/save",
+        r#"{"kind":"wish","text":"Never comment code unless asked.","scope":"global","confidence":100}"#,
+    );
+}
+
+#[test]
+fn snapshot_memory_save_confidence_101() {
+    snapshot_post(
+        "memory_save.confidence_101",
+        "/api/memory/save",
+        r#"{"kind":"lesson","text":"Never comment code unless asked.","scope":"global","confidence":101}"#,
+    );
+}
+
+#[test]
+fn snapshot_memory_delete_deleted() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let _cleanup = RemoveOnDrop(root_of_shared_db().join("memory"));
+    let (status, body) = post_body(addr, "/api/memory/save", None, a_lesson());
+    assert_eq!(status, 200, "{body}");
+    let id = json(&body)["id"].as_str().unwrap().to_string();
+    let (status, body) = post_body(
+        addr,
+        "/api/memory/delete",
+        None,
+        &format!(r#"{{"id":"{id}"}}"#),
+    );
+    snapshot("memory_delete.deleted", status, &body);
+}
+
+#[test]
+fn snapshot_memory_delete_not_found() {
+    snapshot_post(
+        "memory_delete.not_found",
+        "/api/memory/delete",
+        r#"{"id":"000000000000"}"#,
+    );
+}
+
+#[test]
+fn snapshot_memory_delete_empty_id() {
+    snapshot_post(
+        "memory_delete.empty_id",
+        "/api/memory/delete",
+        r#"{"id":""}"#,
+    );
+}
+
+#[test]
+fn snapshot_config_saved_mismatched_and_invalid() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let _restore = RestoreConfig::take();
+    let origin = own_origin(addr);
+    let etag = current_etag(addr);
+    let save = serde_json::json!({ "etag": etag, "set": { "hook.threshold": 0.7 } }).to_string();
+    let (status, body) = post_body(addr, "/api/config", Some(&origin), &save);
+    snapshot("config.saved", status, &body);
+    let (status, body) = post_body(addr, "/api/config", Some(&origin), &save);
+    snapshot("config.etag_mismatch", status, &body);
+    let fresh = current_etag(addr);
+    let bad = serde_json::json!({ "etag": fresh, "set": { "hook.quality": 9 } }).to_string();
+    let (status, body) = post_body(addr, "/api/config", Some(&origin), &bad);
+    snapshot("config.field_error", status, &body);
+}
+
+#[test]
+fn snapshot_config_check() {
+    snapshot_post(
+        "config_check",
+        "/api/config/check",
+        r#"{"set":{"hook.thresold":0.5,"mcp.threshold":2}}"#,
+    );
+}
+
+#[test]
+fn snapshot_config_embed_bad_body() {
+    snapshot_post("config_embed.bad_body", "/api/config/embed", "not json");
+}
+
+#[test]
+fn snapshot_index_bad_body() {
+    snapshot_post("index.bad_body", "/api/index", "not json");
+}
+
+#[test]
+fn snapshot_embed_test_unreachable() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let restore = RestoreConfig::take();
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let dead = format!("http://{}", closed.local_addr().unwrap());
+    drop(closed);
+    std::fs::write(&restore.path, format!("[embed]\nollama_url = \"{dead}\"\n")).unwrap();
+    let (status, body) = post_body(addr, "/api/embed/test", Some(&own_origin(addr)), "");
+    snapshot("embed_test.unreachable", status, &body);
+}
+
+#[test]
+fn snapshot_agents_connect_unknown_agent() {
+    snapshot_post(
+        "agents_connect.unknown_agent",
+        "/api/agents/connect",
+        r#"{"id":"vim"}"#,
+    );
+}
+
+#[test]
+fn stats_of_a_machine_that_never_indexed_is_zero_but_mid_swap_is_unavailable() {
+    use rhebok::dashboard::core::{stats, DashboardError};
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let good_db = std::env::var("RHEBOK_DB").unwrap();
+    let cfg = rhebok::config::Config::load();
+    let fresh = tempfile::tempdir().unwrap();
+    let db = fresh.path().join("db");
+    unsafe { std::env::set_var("RHEBOK_DB", &db) };
+    let never_indexed = stats::stats(&cfg);
+    let graph = rhebok::dashboard::core::graph::graph(&cfg);
+    std::fs::create_dir_all(db.with_extension("old")).unwrap();
+    let swapping = stats::stats(&cfg);
+    unsafe { std::env::set_var("RHEBOK_DB", &good_db) };
+
+    assert_eq!(never_indexed.unwrap().documents, 0);
+    assert!(graph.unwrap().edges.is_empty());
+    assert!(matches!(swapping, Err(DashboardError::Unavailable(_))));
+}
+
+#[test]
+fn the_read_only_views_answer_from_the_shared_corpus() {
+    use rhebok::dashboard::core::{document, graph, stats, version};
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let cfg = rhebok::config::Config::load();
+
+    let s = stats::stats(&cfg).unwrap();
+    assert_eq!((s.documents, s.chunks), (1, 1));
+    assert_eq!(s.tiers.hook, 1);
+
+    assert!(matches!(
+        stats::progress().unwrap(),
+        stats::Progress::Idle { idle: true }
+    ));
+
+    let g = graph::graph(&cfg).unwrap();
+    assert_eq!(g.nodes.len(), 1);
+    let id = g.nodes[0].id.clone();
+
+    match document::document(&cfg, &id).unwrap() {
+        document::Document::Found(d) => assert_eq!(d.title, "Alpha"),
+        other => panic!("expected the document, got {other:?}"),
+    }
+    match document::document(&cfg, "nope").unwrap() {
+        document::Document::Missing { error } => assert_eq!(error, "unknown document"),
+        other => panic!("expected a missing document, got {other:?}"),
+    }
+    match document::document(&cfg, "  ").unwrap() {
+        document::Document::Missing { error } => assert_eq!(error, "missing id"),
+        other => panic!("expected a missing id, got {other:?}"),
+    }
+
+    let v = version::version(false).unwrap();
+    assert_eq!(v.installed, env!("CARGO_PKG_VERSION"));
+}
+
+#[test]
+fn search_tells_a_refusal_from_an_outage() {
+    use rhebok::dashboard::core::search::{search, SearchQuery};
+    use rhebok::dashboard::core::DashboardError;
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let good_db = std::env::var("RHEBOK_DB").unwrap();
+    let query = |q: &str, tier| SearchQuery {
+        q: q.to_string(),
+        tier,
+    };
+
+    let cfg = rhebok::config::Config::load();
+    let found = search(&cfg, &query("pgbouncer transaction", Some(1))).unwrap();
+    assert!(found.error.is_none());
+    assert!(!found.explain.unwrap().fused.is_empty());
+    assert_eq!(
+        search(&cfg, &query("  ", None)).unwrap().error.as_deref(),
+        Some("empty query")
+    );
+
+    let dead = {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        l.local_addr().unwrap()
+    };
+    let mut unreachable = cfg.clone();
+    unreachable.embed.ollama_url = format!("http://{dead}");
+    let outcome = search(&unreachable, &query("pgbouncer", Some(0))).unwrap();
+    assert_eq!(outcome.error.as_deref(), Some("embedding unavailable"));
+
+    let empty = tempfile::tempdir().unwrap();
+    unsafe { std::env::set_var("RHEBOK_DB", empty.path()) };
+    let unopenable = search(&cfg, &query("anything", None));
+    unsafe { std::env::set_var("RHEBOK_DB", &good_db) };
+    assert!(
+        matches!(unopenable, Err(DashboardError::Unavailable(_))),
+        "{unopenable:?}"
+    );
+}
+
+#[test]
+fn the_memory_reads_answer_without_an_error_path() {
+    use rhebok::dashboard::core::memories;
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let cfg = rhebok::config::Config::load();
+
+    let none = memories::list(&cfg);
+    assert!(none.memories.is_empty());
+    assert!(none.unavailable.is_none());
+    assert_eq!(
+        memories::reach(&cfg, " ").unwrap().error.as_deref(),
+        Some("no id given")
+    );
+    assert!(memories::reach(&cfg, "000000000000")
+        .unwrap()
+        .error
+        .unwrap()
+        .contains("no memory"));
+}
+
+#[test]
+fn memory_reach_keeps_its_503_when_the_store_cannot_open() {
+    use rhebok::dashboard::core::{memories, DashboardError};
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let empty = tempfile::tempdir().unwrap();
+    let root = empty.path().join("memory");
+    let cfg = rhebok::config::Config::load();
+    let out = rhebok::memory::remember_at(
+        &root,
+        &cfg,
+        Box::new(rhebok::embed::OllamaEmbedder::new(&cfg.embed)),
+        rhebok::memory::Remember {
+            kind: rhebok::memory::MemoryKind::Fact,
+            text: "PgBouncer runs in transaction mode in this deployment.".into(),
+            title: None,
+            project: None,
+            confidence: 100,
+            origin: rhebok::memory::Origin::User,
+            session: None,
+            source_hash: None,
+            source_stamp: None,
+            created: None,
+        },
+    )
+    .unwrap();
+    let rhebok::memory::Outcome::Saved { id } = out else {
+        panic!("{out:?}")
+    };
+    let good_db = std::env::var("RHEBOK_DB").unwrap();
+
+    unsafe { std::env::set_var("RHEBOK_DB", empty.path().join("db")) };
+    let core = memories::reach(&cfg, &id);
+    let http = get(addr, &format!("/api/memory/reach?id={id}"));
+    unsafe { std::env::set_var("RHEBOK_DB", &good_db) };
+
+    assert!(
+        matches!(core, Err(DashboardError::Unavailable(_))),
+        "{core:?}"
+    );
+    assert_eq!(http.0, 503, "{}", http.1);
+}
+
+#[test]
+fn two_in_process_saves_queue_instead_of_refusing() {
+    use rhebok::dashboard::core::memory_write::{save, SaveRequest};
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let _cleanup = RemoveOnDrop(root_of_shared_db().join("memory"));
+    let cfg = rhebok::config::Config::load();
+    let request = |kind: &str, text: String| SaveRequest {
+        id: None,
+        kind: kind.to_string(),
+        text,
+        scope: "global".to_string(),
+        confidence: Some(100),
+    };
+    for round in 0..4 {
+        let barrier = std::sync::Barrier::new(2);
+        let lesson = format!("Round {round}: never comment code unless asked.");
+        let fact = format!("Round {round}: PgBouncer runs in transaction mode.");
+        let (first, second) = std::thread::scope(|s| {
+            let a = s.spawn(|| {
+                barrier.wait();
+                save(&cfg, request("lesson", lesson.clone()))
+            });
+            let b = s.spawn(|| {
+                barrier.wait();
+                std::thread::sleep(std::time::Duration::from_millis(25));
+                save(&cfg, request("fact", fact.clone()))
+            });
+            (a.join().unwrap(), b.join().unwrap())
+        });
+        assert!(first.is_ok(), "round {round}: {first:?}");
+        assert!(second.is_ok(), "round {round}: {second:?}");
+        let listed = rhebok::dashboard::core::memories::list(&cfg);
+        let texts: Vec<&str> = listed
+            .memories
+            .iter()
+            .map(|m| m.memory.text.as_str())
+            .collect();
+        assert!(texts.contains(&lesson.as_str()), "round {round}: {texts:?}");
+        assert!(texts.contains(&fact.as_str()), "round {round}: {texts:?}");
+    }
+}
+
+#[test]
+fn the_embed_connection_test_reaches_the_configured_embedder_and_reports_it() {
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let path = rhebok::config::Config::config_path();
+    let t = rhebok::dashboard::core::embed::test(&path);
+    assert!(t.ok, "{t:?}");
+    assert_eq!(t.backend, "ollama");
+    assert!(t.dimensions.is_some());
+    assert!(t.error.is_none());
+    let json = serde_json::to_value(&t).unwrap();
+    assert!(json.get("error").is_none());
+}
+
+#[test]
+fn the_ignore_preview_counts_the_skipped_files_a_pattern_would_hide() {
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let cfg = rhebok::config::Config::load();
+    let p = rhebok::dashboard::core::ignore::preview(&cfg, "*.zip").unwrap();
+    assert_eq!(p.error, None);
+    assert_eq!(p.matches, 0);
+}
+
+const EMBED_ENV: [&str; 3] = [
+    "RHEBOK_EMBED_URL",
+    "RHEBOK_EMBED_MODEL",
+    "RHEBOK_EMBED_TOKEN",
+];
+
+struct EmbedEnvCleared(Vec<(&'static str, Option<std::ffi::OsString>)>);
+
+impl EmbedEnvCleared {
+    fn new() -> Self {
+        let saved = EMBED_ENV
+            .iter()
+            .map(|var| (*var, std::env::var_os(var)))
+            .collect();
+        for var in EMBED_ENV {
+            unsafe { std::env::remove_var(var) };
+        }
+        Self(saved)
+    }
+}
+
+impl Drop for EmbedEnvCleared {
+    fn drop(&mut self) {
+        for (var, value) in &self.0 {
+            match value {
+                Some(v) => unsafe { std::env::set_var(var, v) },
+                None => unsafe { std::env::remove_var(var) },
+            }
+        }
+    }
+}
+
+fn config_in(dir: &tempfile::TempDir, text: &str) -> std::path::PathBuf {
+    let path = dir.path().join("config.toml");
+    std::fs::write(&path, text).unwrap();
+    path
+}
+
+#[test]
+fn the_embed_token_never_appears_in_any_config_answer() {
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_in(&dir, "api_key = \"FILE-SECRET-77\"\n");
+    let token = "TOKEN-SECRET-4242";
+    let req: rhebok::dashboard::core::config::EmbedEndpoint =
+        serde_json::from_value(serde_json::json!({
+            "url": "http://127.0.0.1:9/v1",
+            "model": "m",
+            "token": token,
+        }))
+        .unwrap();
+    let saved = rhebok::dashboard::core::config::set_embed_endpoint(&path, req).unwrap();
+    let env_text = std::fs::read_to_string(dir.path().join("env")).unwrap();
+    assert!(
+        env_text.contains(token),
+        "the token must be stored: {env_text}"
+    );
+    let saved_json = serde_json::to_string(&saved).unwrap();
+    let viewed =
+        serde_json::to_string(&rhebok::dashboard::core::config::view(&path).unwrap()).unwrap();
+    for answer in [&saved_json, &viewed] {
+        assert!(!answer.contains(token), "{answer}");
+        assert!(!answer.contains("FILE-SECRET-77"), "{answer}");
+    }
+    assert_eq!(
+        rhebok::dashboard::core::config::view(&path).unwrap().0["secrets"]["embed.token"],
+        "set"
+    );
+}
+
+#[test]
+fn an_endpoint_url_without_a_model_and_token_is_unprocessable() {
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let dir = tempfile::tempdir().unwrap();
+    let path = config_in(&dir, "");
+    let req: rhebok::dashboard::core::config::EmbedEndpoint =
+        serde_json::from_value(serde_json::json!({ "url": "http://127.0.0.1:9/v1" })).unwrap();
+    let err = rhebok::dashboard::core::config::set_embed_endpoint(&path, req).unwrap_err();
+    assert!(
+        matches!(err, rhebok::dashboard::core::DashboardError::Unprocessable(e) if e.len() == 2)
+    );
+}
+
+struct RestoreEnv(Vec<(&'static str, Option<std::ffi::OsString>)>);
+
+impl RestoreEnv {
+    fn point(vars: &[(&'static str, &std::path::Path)]) -> Self {
+        let saved = vars
+            .iter()
+            .map(|(k, _)| (*k, std::env::var_os(k)))
+            .collect();
+        for (k, v) in vars {
+            // SAFETY: every caller holds ENV_GUARD for the life of this value.
+            unsafe { std::env::set_var(k, v) };
+        }
+        RestoreEnv(saved)
+    }
+}
+
+impl Drop for RestoreEnv {
+    fn drop(&mut self) {
+        for (k, v) in &self.0 {
+            // SAFETY: the caller still holds ENV_GUARD while this drops.
+            unsafe {
+                match v {
+                    Some(v) => std::env::set_var(k, v),
+                    None => std::env::remove_var(k),
+                }
+            }
+        }
+    }
+}
+
+fn private_data_dir() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let notes = dir.path().join("notes");
+    std::fs::create_dir_all(&notes).unwrap();
+    std::fs::write(
+        notes.join("a.md"),
+        "# Alpha\n\nPgBouncer runs in transaction mode.\n",
+    )
+    .unwrap();
+    let ollama = common::fake_ollama();
+    std::fs::write(
+        dir.path().join("config.toml"),
+        format!(
+            "sources = [\"{}\"]\nindex_transcripts = false\nindex_codex_sessions = false\n\n[embed]\nollama_url = \"{ollama}\"\n",
+            notes.display()
+        ),
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn an_index_run_is_visible_to_a_reader_that_did_not_start_it() {
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let dir = private_data_dir();
+    let db = dir.path().join("db");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let _env = RestoreEnv::point(&[
+        ("RHEBOK_DB", &db),
+        ("RHEBOK_CONFIG", &dir.path().join("config.toml")),
+        ("HOME", &home),
+        ("CODEX_HOME", &home),
+    ]);
+    let cli = std::path::Path::new(env!("CARGO_BIN_EXE_rhebok"));
+
+    let started = rhebok::dashboard::core::index::start(&db, cli, false).unwrap();
+    assert!(started.started);
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let view = loop {
+        let view = rhebok::dashboard::core::index::run_status(&db);
+        if view.run.as_ref().is_some_and(|r| r.finished) {
+            break view;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the index never finished: {view:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    };
+    let run = view.run.unwrap();
+    assert_eq!(run.pid, started.pid);
+    assert_eq!(run.ok, Some(true), "{run:?}");
+    assert_eq!(run.code, Some(0), "{run:?}");
+    assert!(db.with_extension("indexrun").is_file());
+}
+
+#[test]
+fn a_run_whose_process_died_unrecorded_reads_as_finished_and_unknown() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db");
+    let mut child = std::process::Command::new("true").spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    std::fs::write(
+        db.with_extension("indexrun"),
+        serde_json::json!({
+            "pid": pid, "reindex": false, "started_at": 1,
+            "finished": false, "ok": null, "code": null, "log": "x.log",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let run = rhebok::dashboard::core::index::run_status(&db).run.unwrap();
+    assert!(run.finished, "{run:?}");
+    assert_eq!(run.ok, None);
+    assert_eq!(run.code, None);
+}
+
+#[test]
+fn a_running_process_keeps_its_run_unfinished_and_the_view_carries_no_started_at() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("db");
+    std::fs::write(
+        db.with_extension("indexrun"),
+        serde_json::json!({
+            "pid": std::process::id(), "reindex": true, "started_at": 1,
+            "finished": false, "ok": null, "code": null, "log": "x.log",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let view = rhebok::dashboard::core::index::run_status(&db);
+    assert!(!view.run.as_ref().unwrap().finished);
+    let v = serde_json::to_value(&view).unwrap();
+    assert_eq!(
+        v,
+        serde_json::json!({ "run": {
+            "pid": std::process::id(), "reindex": true, "finished": false,
+            "ok": null, "code": null, "log": "x.log",
+        }})
+    );
+}
+
+#[test]
+fn a_missing_cli_is_an_install_fix_not_a_server_error() {
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = private_data_dir();
+    let db = dir.path().join("db");
+    let _env = RestoreEnv::point(&[
+        ("RHEBOK_DB", &db),
+        ("RHEBOK_CONFIG", &dir.path().join("config.toml")),
+    ]);
+    let nope = dir.path().join("nope/rhebok");
+    let fix_of = |e: rhebok::dashboard::core::DashboardError| match e {
+        rhebok::dashboard::core::DashboardError::CliMissing { fix } => fix,
+        other => panic!("expected CliMissing, got {other:?}"),
+    };
+    let fix = fix_of(rhebok::dashboard::core::index::start(&db, &nope, false).unwrap_err());
+    assert!(!fix.is_empty());
+    assert!(fix.contains("install"), "{fix}");
+
+    let env = agent_env(dir.path());
+    let fix = fix_of(rhebok::dashboard::core::update::start(&env.paths, &nope).unwrap_err());
+    assert!(!fix.is_empty());
+
+    let view = rhebok::dashboard::core::install::view(&dir.path().join("config.toml"), &env, &nope);
+    let binary = view.checks.iter().find(|c| c.name == "binary").unwrap();
+    assert!(!binary.ok);
+    assert_eq!(view.exe, nope);
+
+    let plain = dir.path().join("plain.txt");
+    std::fs::write(&plain, "x").unwrap();
+    assert!(matches!(
+        rhebok::dashboard::core::index::start(&db, &plain, false),
+        Err(rhebok::dashboard::core::DashboardError::CliMissing { .. })
+    ));
+}
+
+#[test]
+fn two_saves_from_the_same_etag_never_both_land() {
+    use rhebok::dashboard::core::config::{save, ConfigSave};
+    use rhebok::dashboard::core::DashboardError;
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let dir = tempfile::tempdir().unwrap();
+    let original = "[hook]\nthreshold = 0.7\n";
+    let request = |etag: &str, key: &str, value: serde_json::Value| ConfigSave {
+        etag: etag.to_string(),
+        set: serde_json::Map::from_iter([(key.to_string(), value)]),
+        unset: Vec::new(),
+    };
+    for round in 0..25 {
+        let path = config_in(&dir, original);
+        let etag = rhebok::config::edit::etag_of(Some(original));
+        let barrier = std::sync::Barrier::new(2);
+        let (threshold, quality) = std::thread::scope(|s| {
+            let a = s.spawn(|| {
+                barrier.wait();
+                save(
+                    &path,
+                    request(&etag, "hook.threshold", serde_json::json!(0.6)),
+                )
+            });
+            let b = s.spawn(|| {
+                barrier.wait();
+                save(&path, request(&etag, "hook.quality", serde_json::json!(2)))
+            });
+            (a.join().unwrap(), b.join().unwrap())
+        });
+        let written = std::fs::read_to_string(&path).unwrap();
+        let threshold_landed = written.contains("threshold = 0.6");
+        let quality_landed = written.contains("quality = 2");
+        match (&threshold, &quality) {
+            (Ok(_), Err(DashboardError::ConfigChanged { .. })) => {
+                assert!(
+                    threshold_landed && !quality_landed,
+                    "round {round}: {written}"
+                )
+            }
+            (Err(DashboardError::ConfigChanged { .. }), Ok(_)) => {
+                assert!(
+                    quality_landed && !threshold_landed,
+                    "round {round}: {written}"
+                )
+            }
+            other => panic!("round {round}: exactly one save must land, got {other:?}\n{written}"),
+        }
+    }
+}
+
+#[test]
+fn a_save_that_replaces_a_near_duplicate_names_what_it_replaced() {
+    let addr = server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let _cleanup = RemoveOnDrop(root_of_shared_db().join("memory"));
+    let save = |text: &str| {
+        post_body(
+            addr,
+            "/api/memory/save",
+            None,
+            &serde_json::json!({ "kind": "lesson", "text": text, "scope": "global", "confidence": 100 })
+                .to_string(),
+        )
+    };
+    let (status, body) = save("Never comment code unless asked.");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(json(&body)["outcome"], "saved", "{body}");
+
+    let (status, body) = save("Squash every pull request to one commit.");
+    assert_eq!(status, 200, "{body}");
+    let v = json(&body);
+    assert_eq!(v["outcome"], "replaced", "{v}");
+    assert!(v["id"].is_string(), "{v}");
+    assert!(
+        v["previous_title"].as_str().is_some_and(|t| !t.is_empty()),
+        "{v}"
+    );
+}
+
+fn run_the_cli_under_a_record_naming_it(db: &std::path::Path) -> std::process::ExitStatus {
+    let cli = env!("CARGO_BIN_EXE_rhebok");
+    let mut child = std::process::Command::new("sh")
+        .args(["-c", "read _ && exec \"$0\" index", cli])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    std::fs::write(
+        db.with_extension("indexrun"),
+        serde_json::json!({
+            "pid": child.id(), "reindex": false, "started_at": 1,
+            "finished": false, "ok": null, "code": null, "log": "x.log",
+        })
+        .to_string(),
+    )
+    .unwrap();
+    child.stdin.take().unwrap().write_all(b"go\n").unwrap();
+    child.wait().unwrap()
+}
+
+#[test]
+fn an_index_records_its_own_outcome_when_nobody_reaps_it() {
+    server_over_temp_corpus();
+    let _guard = ENV_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+    let _env = EmbedEnvCleared::new();
+    let dir = private_data_dir();
+    let db = dir.path().join("db");
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let _env = RestoreEnv::point(&[
+        ("RHEBOK_DB", &db),
+        ("RHEBOK_CONFIG", &dir.path().join("config.toml")),
+        ("HOME", &home),
+        ("CODEX_HOME", &home),
+    ]);
+
+    let status = run_the_cli_under_a_record_naming_it(&db);
+    assert!(status.success(), "{status:?}");
+    let run = rhebok::dashboard::core::index::run_status(&db).run.unwrap();
+    assert_eq!(
+        (run.finished, run.ok, run.code),
+        (true, Some(true), Some(0)),
+        "{run:?}"
+    );
+
+    let held = rhebok::index::IndexLock::acquire(&db).expect("the test takes the index lock");
+    let status = run_the_cli_under_a_record_naming_it(&db);
+    drop(held);
+    assert_eq!(status.code(), Some(1), "{status:?}");
+    let run = rhebok::dashboard::core::index::run_status(&db).run.unwrap();
+    assert_eq!(
+        (run.finished, run.ok, run.code),
+        (true, Some(false), Some(1)),
+        "{run:?}"
     );
 }

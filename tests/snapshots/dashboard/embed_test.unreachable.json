@@ -1,0 +1,12 @@
+{
+  "body": {
+    "backend": "ollama",
+    "dimensions": null,
+    "error": "ollama unreachable — is `ollama serve` running?: error sending request for url (http://127.0.0.1:<port>/api/embed): client error (Connect): tcp connect error: Connection refused (os error <n>)",
+    "latency_ms": "<n>",
+    "model": "qwen3-embedding:0.6b",
+    "ok": false,
+    "url": "http://127.0.0.1:<port>"
+  },
+  "status": 200
+}

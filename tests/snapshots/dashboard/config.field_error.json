@@ -1,0 +1,13 @@
+{
+  "body": {
+    "error": "not saved: line 6: hook.quality: must be between 0 and 4, got 9",
+    "errors": [
+      {
+        "line": 6,
+        "message": "must be between 0 and 4, got 9",
+        "path": "hook.quality"
+      }
+    ]
+  },
+  "status": 422
+}

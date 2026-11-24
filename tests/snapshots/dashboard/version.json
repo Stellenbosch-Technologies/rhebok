@@ -1,0 +1,13 @@
+{
+  "body": {
+    "checked_at": null,
+    "error": null,
+    "installed": "<version>",
+    "latest": null,
+    "no_release": false,
+    "update": null,
+    "update_available": null,
+    "url": null
+  },
+  "status": 200
+}

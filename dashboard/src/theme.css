@@ -5,6 +5,7 @@
 @import "@fontsource/ibm-plex-mono/500.css";
 @import "tailwindcss";
 @source not "../dist";
+@source not "../e2e";
 @theme {
   --color-ground: #F7F1E7;
   --color-surface: #FDFAF4;

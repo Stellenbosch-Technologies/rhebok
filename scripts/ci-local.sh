@@ -6,15 +6,16 @@ usage() {
 Usage: scripts/ci-local.sh [--only job[,job]] [--skip job[,job]] [--perf <base-ref>]
 
 Runs the jobs .github/workflows/ci.yml and audit.yml run, on this machine.
-Jobs: fmt clippy test targets msrv dashboard e2e audit plugin perf
+Jobs: fmt clippy test targets msrv dashboard e2e app audit plugin perf
 Before any job that builds, scripts/fetch-lbug.sh verifies the pinned LadybugDB library.
 audit is skipped when cargo-audit is not installed.
 plugin runs only here, not in ci.yml, and is skipped when claude is not on the PATH.
 perf runs only with --perf, against the release binary built from <base-ref>.
+app checks the native app in app/ on macOS with its pinned toolchain, and is skipped elsewhere.
 USAGE
 }
 
-ALL_JOBS=(fmt clippy test targets msrv dashboard e2e audit plugin perf)
+ALL_JOBS=(fmt clippy test targets msrv dashboard e2e app audit plugin perf)
 ONLY=""
 SKIP=""
 PERF_BASE=""
@@ -106,6 +107,35 @@ job_e2e() {
   (cd dashboard/e2e && node run.mjs)
 }
 
+app_toolchain() {
+  local pinned
+  pinned="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' app/Cargo.toml)"
+  if rustup toolchain list | grep -q "^$pinned"; then
+    echo "$pinned"
+  elif rustc +stable --version 2>/dev/null | grep -q "^rustc $pinned\."; then
+    echo stable
+  fi
+}
+
+job_app() {
+  if [ "$(uname -s)" != Darwin ]; then
+    echo "SKIP: the native app builds only on macOS"
+    return 99
+  fi
+  local toolchain
+  toolchain="$(app_toolchain)"
+  if [ -z "$toolchain" ]; then
+    echo "SKIP: the app's pinned toolchain is not installed (rustup toolchain install $(sed -n 's/^rust-version = "\(.*\)"$/\1/p' app/Cargo.toml))"
+    return 99
+  fi
+  (cd app &&
+    cargo "+$toolchain" fmt --check &&
+    cargo "+$toolchain" clippy --all-targets --locked -- -D warnings &&
+    cargo "+$toolchain" clippy --all-targets --locked --features shoot -- -D warnings &&
+    cargo "+$toolchain" test --locked &&
+    cargo "+$toolchain" test --locked --features shoot)
+}
+
 job_audit() {
   if ! command -v cargo-audit >/dev/null; then
     echo "SKIP: cargo-audit is not installed (cargo install --locked cargo-audit@0.23.0)"
@@ -141,7 +171,7 @@ job_perf() {
   return $status
 }
 
-for job in clippy test msrv e2e perf; do
+for job in clippy test msrv e2e app perf; do
   if selected "$job"; then
     scripts/fetch-lbug.sh || { echo "ci-local: the pinned LadybugDB library could not be verified" >&2; exit 1; }
     break

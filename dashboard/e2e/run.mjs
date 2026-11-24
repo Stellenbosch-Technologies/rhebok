@@ -27,13 +27,11 @@ async function main() {
     .filter((f) => f.endsWith(".mjs"))
     .filter((f) => !only || f.includes(only))
     .sort();
-  const sandbox = await Sandbox.create();
+  const sandbox = await Sandbox.ready();
   const browser = await launch();
   const results = [];
   const fresh = [];
   try {
-    await sandbox.run("index");
-    await sandbox.startDashboard();
     for (const file of specs) {
       const spec = await import(join(HERE, "specs", file));
       let target = sandbox;

@@ -1,0 +1,7 @@
+{
+  "body": {
+    "error": "unknown agent `vim`; known agents: claude-code, codex, claude-desktop, cursor, gemini",
+    "unparseable": false
+  },
+  "status": 404
+}

@@ -218,3 +218,35 @@ jobs:
         with:
           node-version: 22
       - run: scripts/ci-local.sh --only e2e
+
+  macos-app:
+    # The native app is its own cargo workspace in app/. This job is not a
+    # required check: it builds GPUI against the macOS SDK and is allowed to
+    # fail without blocking a merge.
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master on 2026-10-16
+        with:
+          toolchain: "1.98"
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: |
+            . -> target
+            app -> target
+      - name: Rerun lbug's build script against the pinned, checksum-verified LadybugDB library
+        run: |
+          cargo clean -p lbug
+          ../scripts/fetch-lbug.sh
+      - run: cargo fmt --check
+      - run: cargo build --locked
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo clippy --all-targets --locked --features shoot -- -D warnings
+      - run: cargo test --locked
+      - run: cargo test --locked --features shoot
