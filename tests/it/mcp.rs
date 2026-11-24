@@ -166,13 +166,11 @@ fn a_pack_refusal_surfaces_its_own_message_instead_of_no_results() {
 }
 
 #[test]
-fn a_non_refusal_search_failure_still_answers_no_results() {
+fn any_other_search_failure_says_it_could_not_search_and_why() {
     let text = RhebokTools::format_search_failure(anyhow::anyhow!("transient store error"));
-    assert!(
-        text.to_lowercase().contains("no matching notes"),
-        "an ordinary failure must still degrade to the explicit empty-results message; \
-         got: {text:?}"
-    );
+    assert!(text.starts_with("Could not search"), "{text:?}");
+    assert!(text.contains("transient store error"), "{text:?}");
+    assert!(!text.contains("No matching notes"), "{text:?}");
 }
 
 fn handshake(dir: &std::path::Path) -> std::collections::HashMap<u64, serde_json::Value> {
@@ -183,12 +181,21 @@ fn exchange(
     dir: &std::path::Path,
     calls: &[serde_json::Value],
 ) -> std::collections::HashMap<u64, serde_json::Value> {
+    exchange_with_env(dir, &[], calls)
+}
+
+fn exchange_with_env(
+    dir: &std::path::Path,
+    env: &[(&str, &str)],
+    calls: &[serde_json::Value],
+) -> std::collections::HashMap<u64, serde_json::Value> {
     use std::io::{BufRead, Write};
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_rhebok"))
         .arg("mcp")
         .env("RHEBOK_DB", dir.join("db"))
         .env("RHEBOK_CONFIG", dir.join("config.toml"))
         .env("PATH", "/usr/bin:/bin")
+        .envs(env.iter().copied())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -371,11 +378,8 @@ fn a_tool_call_returns_the_same_answer_as_text_and_as_structured_content() {
         serde_json::json!([]),
         "{related}"
     );
-    assert!(
-        related["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("No matching notes"),
+    assert_eq!(
+        related["structuredContent"]["error"], related["content"][0]["text"],
         "{related}"
     );
 }
@@ -434,8 +438,12 @@ fn a_pack_refusal_is_reported_in_the_structured_error_too() {
     );
     assert!(out.hits.is_empty());
 
-    let (_, ordinary) = RhebokTools::search_failure(anyhow::anyhow!("transient store error"));
-    assert_eq!(ordinary.error, None, "{ordinary:?}");
+    let (text, ordinary) = RhebokTools::search_failure(anyhow::anyhow!("transient store error"));
+    assert_eq!(
+        ordinary.error.as_deref(),
+        Some(text.as_str()),
+        "{ordinary:?}"
+    );
 }
 
 #[test]
@@ -618,4 +626,159 @@ fn a_listed_memory_cannot_pose_as_a_rhebok_block() {
     for tag in ["</rhebok-lessons", "<rhebok-context"] {
         assert!(!json.contains(tag), "{tag} survived: {json}");
     }
+}
+
+fn search_call(query: &str) -> serde_json::Value {
+    serde_json::json!({ "name": "rhebok_search", "arguments": { "query": query } })
+}
+
+fn reply_of(
+    answers: &std::collections::HashMap<u64, serde_json::Value>,
+) -> (String, serde_json::Value) {
+    let result = &answers[&3]["result"];
+    let text = result["content"][0]["text"].as_str().unwrap().to_string();
+    (text, result["structuredContent"].clone())
+}
+
+fn assert_could_not_search(text: &str, structured: &serde_json::Value) {
+    assert!(text.starts_with("Could not search"), "{text}");
+    assert!(!text.contains("No matching notes"), "{text}");
+    assert_eq!(structured["error"].as_str(), Some(text), "{structured}");
+    assert_eq!(structured["hits"], serde_json::json!([]), "{structured}");
+}
+
+fn the_word_xylophone_points_elsewhere(text: &str) -> Vec<f32> {
+    let mut v = vec![0.0; 512];
+    v[usize::from(text.contains("xylophone"))] = 1.0;
+    v
+}
+
+fn indexed(dir: &std::path::Path, notes: &[(&str, &str)]) {
+    let sources = dir.join("notes");
+    std::fs::create_dir_all(&sources).unwrap();
+    for (name, body) in notes {
+        std::fs::write(sources.join(name), body).unwrap();
+    }
+    let ollama = crate::common::fake_ollama_embedding(the_word_xylophone_points_elsewhere);
+    std::fs::write(
+        dir.join("config.toml"),
+        format!(
+            "index_transcripts = false\nsources = [\"{}\"]\n[embed]\nollama_url = \"{ollama}\"\n",
+            sources.display()
+        ),
+    )
+    .unwrap();
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_rhebok"))
+        .arg("index")
+        .env("RHEBOK_DB", dir.join("db"))
+        .env("RHEBOK_CONFIG", dir.join("config.toml"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+const POOLING: (&str, &str) = (
+    "pooling.md",
+    "# Pooling\n\nPgBouncer runs in transaction mode and drops session state.",
+);
+
+fn point_ollama_at_a_closed_port(dir: &std::path::Path) {
+    let cfg = dir.join("config.toml");
+    let text = std::fs::read_to_string(&cfg).unwrap();
+    let fixed: String = text
+        .lines()
+        .map(|l| {
+            if l.starts_with("ollama_url") {
+                "ollama_url = \"http://127.0.0.1:9\"".to_string()
+            } else {
+                l.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(cfg, fixed).unwrap();
+}
+
+#[test]
+fn a_search_with_no_index_says_nothing_is_indexed_instead_of_no_match() {
+    let t = tempfile::tempdir().unwrap();
+    let (text, structured) = reply_of(&exchange(t.path(), &[search_call("connection pooling")]));
+    assert_could_not_search(&text, &structured);
+    assert!(text.contains("nothing is indexed yet"), "{text}");
+    assert!(text.contains("`rhebok index`"), "{text}");
+    assert!(text.contains("rhebok_index"), "{text}");
+}
+
+#[test]
+fn a_search_of_an_index_with_no_documents_says_nothing_is_indexed() {
+    let t = tempfile::tempdir().unwrap();
+    indexed(t.path(), &[]);
+    let (text, structured) = reply_of(&exchange(t.path(), &[search_call("connection pooling")]));
+    assert_could_not_search(&text, &structured);
+    assert!(text.contains("nothing is indexed yet"), "{text}");
+}
+
+#[test]
+fn a_search_whose_ollama_is_unreachable_says_the_embedding_server_is_not_reachable() {
+    let t = tempfile::tempdir().unwrap();
+    indexed(t.path(), &[POOLING]);
+    point_ollama_at_a_closed_port(t.path());
+    let (text, structured) = reply_of(&exchange(t.path(), &[search_call("connection pooling")]));
+    assert_could_not_search(&text, &structured);
+    assert!(
+        text.contains("the embedding server is not reachable"),
+        "{text}"
+    );
+    assert!(!text.contains("nothing is indexed"), "{text}");
+}
+
+#[test]
+fn a_search_whose_remote_endpoint_is_unreachable_does_not_blame_ollama() {
+    let t = tempfile::tempdir().unwrap();
+    indexed(t.path(), &[POOLING]);
+    let answers = exchange_with_env(
+        t.path(),
+        &[
+            ("RHEBOK_EMBED_URL", "http://127.0.0.1:9"),
+            ("RHEBOK_EMBED_MODEL", "qwen3-embedding:0.6b"),
+        ],
+        &[search_call("connection pooling")],
+    );
+    let (text, structured) = reply_of(&answers);
+    assert_could_not_search(&text, &structured);
+    assert!(
+        text.contains("the embedding server is not reachable"),
+        "{text}"
+    );
+    assert!(text.contains("http://127.0.0.1:9"), "{text}");
+    assert!(!text.to_lowercase().contains("ollama"), "{text}");
+}
+
+#[test]
+fn a_search_of_a_healthy_index_that_matches_nothing_says_no_matching_notes() {
+    let t = tempfile::tempdir().unwrap();
+    indexed(t.path(), &[POOLING]);
+    let (text, structured) = reply_of(&exchange(t.path(), &[search_call("xylophone")]));
+    assert_eq!(text, RhebokTools::format_hits(&[]), "{structured}");
+    assert!(structured["error"].is_null(), "{structured}");
+    assert_eq!(structured["hits"], serde_json::json!([]), "{structured}");
+
+    let (found, _) = reply_of(&exchange(t.path(), &[search_call("pgbouncer sessions")]));
+    assert!(found.contains("pooling.md"), "{found}");
+}
+
+#[test]
+fn related_with_no_index_says_nothing_is_indexed_instead_of_no_match() {
+    let t = tempfile::tempdir().unwrap();
+    let answers = exchange(
+        t.path(),
+        &[
+            serde_json::json!({ "name": "rhebok_related", "arguments": { "uri": "file:///none.md" } }),
+        ],
+    );
+    let (text, structured) = reply_of(&answers);
+    assert_could_not_search(&text, &structured);
+    assert!(text.contains("nothing is indexed yet"), "{text}");
 }

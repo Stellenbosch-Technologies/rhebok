@@ -1084,7 +1084,7 @@ fn main() -> Result<()> {
             // base instead of a link/toolchain problem the user needs to fix.
             let store_broken = match &opened {
                 Ok(_) => None,
-                Err(e) if e.to_string().contains("no index at") => None,
+                Err(e) if e.downcast_ref::<rhebok::store::NoIndex>().is_some() => None,
                 Err(e) => {
                     eprintln!("rhebok: status — the store could not be opened: {e:#}");
                     Some(
