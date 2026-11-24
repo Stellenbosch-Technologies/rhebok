@@ -1,0 +1,29 @@
+{
+  "body": {
+    "blocking": [
+      {
+        "line": 5,
+        "message": "unknown key `thresold`; did you mean `threshold`?",
+        "path": "hook.thresold"
+      },
+      {
+        "line": 8,
+        "message": "must be between 0 and 1, got 2",
+        "path": "mcp.threshold"
+      }
+    ],
+    "errors": [
+      {
+        "line": 5,
+        "message": "unknown key `thresold`; did you mean `threshold`?",
+        "path": "hook.thresold"
+      },
+      {
+        "line": 8,
+        "message": "must be between 0 and 1, got 2",
+        "path": "mcp.threshold"
+      }
+    ]
+  },
+  "status": 200
+}

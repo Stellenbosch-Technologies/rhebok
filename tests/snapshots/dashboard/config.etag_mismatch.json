@@ -1,0 +1,7 @@
+{
+  "body": {
+    "error": "the config file changed since it was read; reload it and make the change again",
+    "etag": "<etag>"
+  },
+  "status": 409
+}

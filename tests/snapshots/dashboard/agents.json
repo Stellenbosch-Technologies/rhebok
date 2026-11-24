@@ -1,0 +1,112 @@
+{
+  "body": {
+    "agents": [
+      {
+        "capabilities": {
+          "instructions": false,
+          "mcp": true,
+          "prompt_hook": true,
+          "session_hook": true,
+          "transcripts": true
+        },
+        "detected": {
+          "config_path": "<root>/home/rhebok/plugin",
+          "installed": false,
+          "version": null
+        },
+        "id": "claude-code",
+        "name": "Claude Code",
+        "snippet": "claude plugin marketplace add \"<root>/home/rhebok/plugin\"\nclaude plugin install rhebok@rhebok\n",
+        "status": {
+          "state": "not_connected"
+        }
+      },
+      {
+        "capabilities": {
+          "instructions": true,
+          "mcp": true,
+          "prompt_hook": true,
+          "session_hook": false,
+          "transcripts": true
+        },
+        "detected": {
+          "config_path": "<root>/home/.codex/config.toml",
+          "installed": false,
+          "version": null
+        },
+        "id": "codex",
+        "instructions": false,
+        "name": "OpenAI Codex CLI",
+        "snippet": "[mcp_servers.rhebok]\ncommand = \"<root>/home/rhebok/bin/rhebok\"\nargs = [\"mcp\"]\n",
+        "status": {
+          "state": "not_connected"
+        }
+      },
+      {
+        "capabilities": {
+          "instructions": false,
+          "mcp": true,
+          "prompt_hook": false,
+          "session_hook": false,
+          "transcripts": false
+        },
+        "detected": {
+          "config_path": "<root>/home/.config/Claude/claude_desktop_config.json",
+          "installed": false,
+          "version": null
+        },
+        "id": "claude-desktop",
+        "name": "Claude Desktop",
+        "snippet": "{\n  \"mcpServers\": {\n    \"rhebok\": {\n      \"command\": \"<root>/home/rhebok/bin/rhebok\",\n      \"args\": [\n        \"mcp\"\n      ]\n    }\n  }\n}\n",
+        "status": {
+          "state": "not_connected"
+        }
+      },
+      {
+        "capabilities": {
+          "instructions": false,
+          "mcp": true,
+          "prompt_hook": false,
+          "session_hook": false,
+          "transcripts": false
+        },
+        "detected": {
+          "config_path": "<root>/home/.cursor/mcp.json",
+          "installed": false,
+          "version": null
+        },
+        "id": "cursor",
+        "name": "Cursor",
+        "snippet": "{\n  \"mcpServers\": {\n    \"rhebok\": {\n      \"command\": \"<root>/home/rhebok/bin/rhebok\",\n      \"args\": [\n        \"mcp\"\n      ]\n    }\n  }\n}\n",
+        "status": {
+          "state": "not_connected"
+        }
+      },
+      {
+        "capabilities": {
+          "instructions": false,
+          "mcp": true,
+          "prompt_hook": true,
+          "session_hook": false,
+          "transcripts": false
+        },
+        "detected": {
+          "config_path": "<root>/home/.gemini/settings.json",
+          "installed": false,
+          "version": null
+        },
+        "id": "gemini",
+        "name": "Gemini CLI",
+        "snippet": "{\n  \"mcpServers\": {\n    \"rhebok\": {\n      \"command\": \"<root>/home/rhebok/bin/rhebok\",\n      \"args\": [\n        \"mcp\"\n      ]\n    }\n  }\n}\n",
+        "status": {
+          "state": "not_connected"
+        }
+      }
+    ],
+    "snippets": {
+      "codex_toml": "[mcp_servers.rhebok]\ncommand = \"<root>/home/rhebok/bin/rhebok\"\nargs = [\"mcp\"]\n",
+      "mcp_json": "{\n  \"mcpServers\": {\n    \"rhebok\": {\n      \"command\": \"<root>/home/rhebok/bin/rhebok\",\n      \"args\": [\n        \"mcp\"\n      ]\n    }\n  }\n}\n"
+    }
+  },
+  "status": 200
+}

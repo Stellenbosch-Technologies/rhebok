@@ -1,0 +1,77 @@
+{
+  "body": {
+    "bm25_unavailable": null,
+    "degraded": false,
+    "elapsed_ms": "<n>",
+    "fused": [
+      {
+        "chunk_id": "8374a6197b806e58c5dce92aac456d06:0",
+        "doc_id": "8374a6197b806e58c5dce92aac456d06",
+        "excerpt": "# Alpha\n\n## Pooling\n\nPgBouncer runs in transaction mode.",
+        "heading": "Pooling",
+        "memory_kind": null,
+        "relevance": 1.0,
+        "score": 0.032786883413791656,
+        "source_type": "markdown",
+        "title": "Alpha"
+      }
+    ],
+    "injected": [
+      "8374a6197b806e58c5dce92aac456d06:0"
+    ],
+    "memory_unavailable": null,
+    "stages": [
+      {
+        "hits": [
+          {
+            "chunk_id": "8374a6197b806e58c5dce92aac456d06:0",
+            "doc_id": "8374a6197b806e58c5dce92aac456d06",
+            "excerpt": "# Alpha\n\n## Pooling\n\nPgBouncer runs in transaction mode.",
+            "heading": "Pooling",
+            "memory_kind": null,
+            "relevance": 1.0,
+            "score": 1.0,
+            "source_type": "markdown",
+            "title": "Alpha"
+          }
+        ],
+        "name": "vector"
+      },
+      {
+        "hits": [
+          {
+            "chunk_id": "8374a6197b806e58c5dce92aac456d06:0",
+            "doc_id": "8374a6197b806e58c5dce92aac456d06",
+            "excerpt": "# Alpha\n\n## Pooling\n\nPgBouncer runs in transaction mode.",
+            "heading": "Pooling",
+            "memory_kind": null,
+            "relevance": 0.0,
+            "score": 0.5753642320632935,
+            "source_type": "markdown",
+            "title": "Alpha"
+          }
+        ],
+        "name": "bm25"
+      },
+      {
+        "hits": [
+          {
+            "chunk_id": "8374a6197b806e58c5dce92aac456d06:0",
+            "doc_id": "8374a6197b806e58c5dce92aac456d06",
+            "excerpt": "# Alpha\n\n## Pooling\n\nPgBouncer runs in transaction mode.",
+            "heading": "Pooling",
+            "memory_kind": null,
+            "relevance": 1.0,
+            "score": 0.032786883413791656,
+            "source_type": "markdown",
+            "title": "Alpha"
+          }
+        ],
+        "name": "fused"
+      }
+    ],
+    "threshold": 0.6600000262260437,
+    "vectors_unavailable": null
+  },
+  "status": 200
+}

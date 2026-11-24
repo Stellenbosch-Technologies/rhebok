@@ -1,0 +1,6 @@
+{
+  "body": {
+    "error": "a delete must name the id it is deleting"
+  },
+  "status": 400
+}

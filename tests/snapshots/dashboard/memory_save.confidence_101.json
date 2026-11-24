@@ -1,0 +1,6 @@
+{
+  "body": {
+    "error": "confidence is a percent, so it must be 0 to 100"
+  },
+  "status": 400
+}

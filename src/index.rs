@@ -2620,6 +2620,34 @@ pub fn dir_size(dir: &std::path::Path) -> u64 {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_dashboard_reads_every_field_of_the_progress_file_this_writer_publishes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("db.progress");
+        let mut progress = Progress::new_at(&[], Some(path.clone()), true);
+        progress.total_bytes = 400;
+        progress.done_bytes = 100;
+        progress.total_docs = 9;
+        progress.done_docs = 3;
+        progress.chunks = 17;
+        progress.started = std::time::Instant::now() - std::time::Duration::from_secs(7);
+        progress.publish(false);
+
+        let read = crate::dashboard::core::stats::progress_at(&path);
+        let crate::dashboard::core::stats::Progress::Running(running) = read else {
+            panic!("a live writer's file must read as running: {read:?}");
+        };
+        assert_eq!(running.pct, 25.0);
+        assert_eq!(running.docs_done, 3);
+        assert_eq!(running.docs_total, 9);
+        assert_eq!(running.chunks, 17);
+        assert_eq!(running.bytes_done, 100);
+        assert_eq!(running.bytes_total, 400);
+        assert_eq!(running.elapsed_s, 7);
+        assert_eq!(running.eta_s, 21);
+        assert_eq!(running.pid, std::process::id());
+    }
+
     /// `Partial::merge` is the ONLY route a worker's findings take to the
     /// caller, and it is a hand-written field-by-field copy — so a field added
     /// to `Discovered` and forgotten here is silently discarded by the pool,

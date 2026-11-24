@@ -15,6 +15,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Open the native desktop app
+    App {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<std::ffi::OsString>,
+    },
     /// Index every configured source
     Index {
         /// Delete the existing index and rebuild from scratch
@@ -822,95 +827,12 @@ fn main() -> Result<()> {
             no_embed,
             backfill,
         } => {
-            rhebok::index::lower_priority();
-            if backfill {
-                // Phase 2: drain whatever `--no-embed` (or a previous,
-                // interrupted `--backfill`) left behind. Runs to completion —
-                // an unbounded budget — because this is a direct, foreground
-                // request; it still yields `IndexLock` and the store itself
-                // between short batches the whole way, so it never blocks a
-                // concurrent reader or writer for its own duration. See
-                // `index::backfill_vectors`.
-                let stats = rhebok::index::backfill_vectors(&cfg, std::time::Duration::MAX)?;
-                println!(
-                    "backfilled: {} embedded, {} still pending{}",
-                    stats.embedded,
-                    stats.remaining,
-                    if stats.republished {
-                        " (pack republished)"
-                    } else {
-                        ""
-                    }
-                );
-                return Ok(());
-            }
-
-            // Builds into a shadow directory and swaps it in with a rename, so
-            // the hook (a separate process) never sees the database mid-write.
-            // LadybugDB takes an exclusive OS file lock, so indexing in place
-            // would leave the hook returning nothing, silently, for the whole
-            // run. See `index::reindex_swap`.
-            //
-            // `--reindex` used to `remove_dir_all` the live database HERE,
-            // before `reindex_swap` took the writer lock — deleting the
-            // directory out from under a concurrent indexer mid-swap. That is
-            // the same race the lock exists to close, moved one line earlier.
-            // It is now expressed as "do not seed the shadow from the live
-            // index", which needs no wipe at all and happens under the lock.
-            let mode = if compact {
-                RebuildMode::Compact
-            } else if reindex {
-                RebuildMode::FromScratch
-            } else {
-                RebuildMode::Incremental
-            };
-            // `graph.kz` is what actually holds the space lbug cannot
-            // reclaim, so the before/after line compaction reports is
-            // measured against the whole store directory on disk, not any
-            // in-memory estimate.
-            let before_bytes = compact.then(|| rhebok::index::dir_size(&Config::db_path()));
-            let stats = reindex_swap_with(&cfg, mode, !no_embed)?;
-            println!(
-                "indexed: {} added, {} updated, {} skipped, {} removed, {} chunks \
-                 ({} written, {} reused, {} pruned)",
-                stats.added,
-                stats.updated,
-                stats.skipped,
-                stats.deleted,
-                stats.chunks,
-                stats.chunks_written,
-                stats.chunks_reused,
-                stats.chunks_pruned
+            let outcome = run_index(&cfg, reindex, compact, no_embed, backfill);
+            rhebok::dashboard::core::index::record_own_outcome(
+                &Config::db_path(),
+                if outcome.is_ok() { 0 } else { 1 },
             );
-            if no_embed {
-                println!(
-                    "note: published with no embeddings; run `rhebok index --backfill` \
-                     to fill them in"
-                );
-            }
-            if let Some(before) = before_bytes {
-                let after = rhebok::index::dir_size(&Config::db_path());
-                println!(
-                    "compacted: {:.1} MB -> {:.1} MB",
-                    before as f64 / 1_048_576.0,
-                    after as f64 / 1_048_576.0
-                );
-            }
-            if rhebok::memory::distill::runs_automatically(&cfg) && !no_embed {
-                match rhebok::memory::distill::distill_pending(&cfg, 1, true) {
-                    Ok(r) if r.skipped_idle => eprintln!(
-                        "rhebok: distillation skipped — a prompt was seen in the last {}s",
-                        cfg.memory.distill_idle_secs
-                    ),
-                    Ok(r) if r.distilled > 0 => eprintln!(
-                        "rhebok: distilled {} session(s), {} pending",
-                        r.distilled,
-                        r.candidates - r.distilled
-                    ),
-                    Ok(_) => {}
-                    Err(e) => eprintln!("rhebok: distillation failed — {e:#}"),
-                }
-            }
+            outcome?;
         }
 
         Cmd::Search {
@@ -1764,6 +1686,24 @@ fn main() -> Result<()> {
                 .unwrap_or(rhebok::hook::PromptAgent::ClaudeCode),
             &cfg,
         ),
+        Cmd::App { args } => {
+            use std::os::unix::process::CommandExt;
+            let root_app = rhebok::setup::Paths::from_env().root.join("bin/rhebok-app");
+            let beside_cli = std::env::current_exe()
+                .ok()
+                .map(|exe| exe.with_file_name("rhebok-app"));
+            let app = [Some(root_app.clone()), beside_cli]
+                .into_iter()
+                .flatten()
+                .find(|candidate| candidate.exists())
+                .unwrap_or(root_app);
+            if !app.exists() {
+                eprintln!("rhebok-app is not installed; run rhebok update");
+                std::process::exit(1);
+            }
+            let err = std::process::Command::new(&app).args(&args).exec();
+            anyhow::bail!("could not start {}: {err}", app.display());
+        }
         Cmd::Dashboard { port, no_open } => {
             rhebok::dashboard::serve(port, !no_open)?;
         }
@@ -2032,6 +1972,105 @@ fn main() -> Result<()> {
                 allow_unencrypted_manifest,
             },
         )?,
+    }
+    Ok(())
+}
+
+fn run_index(
+    cfg: &Config,
+    reindex: bool,
+    compact: bool,
+    no_embed: bool,
+    backfill: bool,
+) -> Result<()> {
+    rhebok::index::lower_priority();
+    if backfill {
+        // Phase 2: drain whatever `--no-embed` (or a previous,
+        // interrupted `--backfill`) left behind. Runs to completion —
+        // an unbounded budget — because this is a direct, foreground
+        // request; it still yields `IndexLock` and the store itself
+        // between short batches the whole way, so it never blocks a
+        // concurrent reader or writer for its own duration. See
+        // `index::backfill_vectors`.
+        let stats = rhebok::index::backfill_vectors(cfg, std::time::Duration::MAX)?;
+        println!(
+            "backfilled: {} embedded, {} still pending{}",
+            stats.embedded,
+            stats.remaining,
+            if stats.republished {
+                " (pack republished)"
+            } else {
+                ""
+            }
+        );
+        return Ok(());
+    }
+
+    // Builds into a shadow directory and swaps it in with a rename, so
+    // the hook (a separate process) never sees the database mid-write.
+    // LadybugDB takes an exclusive OS file lock, so indexing in place
+    // would leave the hook returning nothing, silently, for the whole
+    // run. See `index::reindex_swap`.
+    //
+    // `--reindex` used to `remove_dir_all` the live database HERE,
+    // before `reindex_swap` took the writer lock — deleting the
+    // directory out from under a concurrent indexer mid-swap. That is
+    // the same race the lock exists to close, moved one line earlier.
+    // It is now expressed as "do not seed the shadow from the live
+    // index", which needs no wipe at all and happens under the lock.
+    let mode = if compact {
+        RebuildMode::Compact
+    } else if reindex {
+        RebuildMode::FromScratch
+    } else {
+        RebuildMode::Incremental
+    };
+    // `graph.kz` is what actually holds the space lbug cannot
+    // reclaim, so the before/after line compaction reports is
+    // measured against the whole store directory on disk, not any
+    // in-memory estimate.
+    let before_bytes = compact.then(|| rhebok::index::dir_size(&Config::db_path()));
+    let stats = reindex_swap_with(cfg, mode, !no_embed)?;
+    println!(
+        "indexed: {} added, {} updated, {} skipped, {} removed, {} chunks \
+         ({} written, {} reused, {} pruned)",
+        stats.added,
+        stats.updated,
+        stats.skipped,
+        stats.deleted,
+        stats.chunks,
+        stats.chunks_written,
+        stats.chunks_reused,
+        stats.chunks_pruned
+    );
+    if no_embed {
+        println!(
+            "note: published with no embeddings; run `rhebok index --backfill` \
+             to fill them in"
+        );
+    }
+    if let Some(before) = before_bytes {
+        let after = rhebok::index::dir_size(&Config::db_path());
+        println!(
+            "compacted: {:.1} MB -> {:.1} MB",
+            before as f64 / 1_048_576.0,
+            after as f64 / 1_048_576.0
+        );
+    }
+    if rhebok::memory::distill::runs_automatically(cfg) && !no_embed {
+        match rhebok::memory::distill::distill_pending(cfg, 1, true) {
+            Ok(r) if r.skipped_idle => eprintln!(
+                "rhebok: distillation skipped — a prompt was seen in the last {}s",
+                cfg.memory.distill_idle_secs
+            ),
+            Ok(r) if r.distilled > 0 => eprintln!(
+                "rhebok: distilled {} session(s), {} pending",
+                r.distilled,
+                r.candidates - r.distilled
+            ),
+            Ok(_) => {}
+            Err(e) => eprintln!("rhebok: distillation failed — {e:#}"),
+        }
     }
     Ok(())
 }

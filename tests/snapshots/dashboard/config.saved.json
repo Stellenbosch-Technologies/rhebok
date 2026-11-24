@@ -1,0 +1,321 @@
+{
+  "body": {
+    "defaults": {
+      "backup": {
+        "drive": null,
+        "enabled": false,
+        "encrypt": true,
+        "include_index": true,
+        "keep_generations": 30,
+        "keep_index": 2,
+        "key_file": null,
+        "s3": null,
+        "targets": []
+      },
+      "embed": {
+        "batch": 32,
+        "chunk_tokens": 512,
+        "concurrency": "<n>",
+        "contextual": false,
+        "dimensions": 512,
+        "enrich_model": "qwen3:4b-instruct",
+        "keep_alive": "30m",
+        "model": "qwen3-embedding:0.6b",
+        "ollama_url": "http://localhost:11434",
+        "prefix_scheme": null
+      },
+      "hook": {
+        "max_tokens": 1500,
+        "quality": null,
+        "threshold": 0.66,
+        "weights": {
+          "authority": null,
+          "current": null,
+          "investigating": null,
+          "markdown": null,
+          "memory": null,
+          "pdf": null,
+          "proposed": null,
+          "superseded": null,
+          "transcript": null,
+          "web": null
+        }
+      },
+      "ignore": [
+        "_templates"
+      ],
+      "index_codex_sessions": true,
+      "index_transcripts": true,
+      "index_transcripts_max_age_days": null,
+      "mcp": {
+        "max_tokens": 4000,
+        "quality": null,
+        "threshold": 0.55,
+        "weights": {
+          "authority": null,
+          "current": null,
+          "investigating": null,
+          "markdown": null,
+          "memory": null,
+          "pdf": null,
+          "proposed": null,
+          "superseded": null,
+          "transcript": null,
+          "web": null
+        }
+      },
+      "memory": {
+        "distill_after_hours": 3.0,
+        "distill_episodes": true,
+        "distill_idle_secs": 60,
+        "distill_model": "qwen3:4b-instruct",
+        "duplicate_similarity": 0.94,
+        "enabled": true,
+        "episode_decay_floor": 0.85,
+        "episode_half_life_days": 30.0,
+        "lessons_max_tokens": 600,
+        "max_memories": 10000,
+        "min_confidence": 80
+      },
+      "mounts": {},
+      "pdf": {
+        "dpi": 150.0,
+        "model_dir": null,
+        "model_downloads": "if-missing",
+        "ocr": "auto",
+        "ocr_min_confidence": 0.5,
+        "ort_dylib_path": null,
+        "pdfium_lib_path": null
+      },
+      "prehook": {
+        "injector": "mod",
+        "status": "counts"
+      },
+      "projects": {},
+      "sources": [],
+      "update": {
+        "check": true
+      },
+      "weights": {
+        "authority": 0.0,
+        "current": 1.0,
+        "decay": {
+          "enabled": false,
+          "floor": 0.1,
+          "grace_days": 90.0,
+          "half_life_days": 100.0
+        },
+        "investigating": 1.0,
+        "markdown": 1.0,
+        "memory": 1.0,
+        "pdf": 1.0,
+        "proposed": 1.0,
+        "superseded": 0.88,
+        "transcript": 0.45,
+        "web": 1.0
+      }
+    },
+    "effective": {
+      "backup": {
+        "drive": null,
+        "enabled": false,
+        "encrypt": true,
+        "include_index": true,
+        "keep_generations": 30,
+        "keep_index": 2,
+        "key_file": null,
+        "s3": null,
+        "targets": []
+      },
+      "embed": {
+        "batch": 32,
+        "chunk_tokens": 512,
+        "concurrency": "<n>",
+        "contextual": false,
+        "dimensions": 512,
+        "enrich_model": "qwen3:4b-instruct",
+        "keep_alive": "30m",
+        "model": "qwen3-embedding:0.6b",
+        "ollama_url": "http://127.0.0.1:<port>",
+        "prefix_scheme": null
+      },
+      "hook": {
+        "max_tokens": 1500,
+        "quality": null,
+        "threshold": 0.7,
+        "weights": {
+          "authority": null,
+          "current": null,
+          "investigating": null,
+          "markdown": null,
+          "memory": null,
+          "pdf": null,
+          "proposed": null,
+          "superseded": null,
+          "transcript": null,
+          "web": null
+        }
+      },
+      "ignore": [
+        "_templates"
+      ],
+      "index_codex_sessions": true,
+      "index_transcripts": true,
+      "index_transcripts_max_age_days": null,
+      "mcp": {
+        "max_tokens": 4000,
+        "quality": null,
+        "threshold": 0.55,
+        "weights": {
+          "authority": null,
+          "current": null,
+          "investigating": null,
+          "markdown": null,
+          "memory": null,
+          "pdf": null,
+          "proposed": null,
+          "superseded": null,
+          "transcript": null,
+          "web": null
+        }
+      },
+      "memory": {
+        "distill_after_hours": 3.0,
+        "distill_episodes": true,
+        "distill_idle_secs": 60,
+        "distill_model": "qwen3:4b-instruct",
+        "duplicate_similarity": 0.94,
+        "enabled": true,
+        "episode_decay_floor": 0.85,
+        "episode_half_life_days": 30.0,
+        "lessons_max_tokens": 600,
+        "max_memories": 10000,
+        "min_confidence": 80
+      },
+      "mounts": {},
+      "pdf": {
+        "dpi": 150.0,
+        "model_dir": null,
+        "model_downloads": "if-missing",
+        "ocr": "auto",
+        "ocr_min_confidence": 0.5,
+        "ort_dylib_path": null,
+        "pdfium_lib_path": null
+      },
+      "prehook": {
+        "injector": "mod",
+        "status": "counts"
+      },
+      "projects": {},
+      "sources": [],
+      "update": {
+        "check": true
+      },
+      "weights": {
+        "authority": 0.0,
+        "current": 1.0,
+        "decay": {
+          "enabled": false,
+          "floor": 0.1,
+          "grace_days": 90.0,
+          "half_life_days": 100.0
+        },
+        "investigating": 1.0,
+        "markdown": 1.0,
+        "memory": 1.0,
+        "pdf": 1.0,
+        "proposed": 1.0,
+        "superseded": 0.88,
+        "transcript": 0.45,
+        "web": 1.0
+      }
+    },
+    "embed_models": [
+      {
+        "dimensions": 512,
+        "hook_threshold": 0.66,
+        "id": "qwen3",
+        "label": "Qwen3-Embedding 0.6B",
+        "mcp_threshold": 0.55,
+        "min_ollama": null,
+        "model": "qwen3-embedding:0.6b",
+        "size": "about 640 MB",
+        "summary": "the default; runs on any recent Ollama"
+      },
+      {
+        "dimensions": 512,
+        "hook_threshold": 0.82,
+        "id": "gemma",
+        "label": "EmbeddingGemma 2 (270M, bf16)",
+        "mcp_threshold": 0.68,
+        "min_ollama": "0.40.0",
+        "model": "embeddinggemma-2:270m-bf16-text",
+        "size": "about 575 MB",
+        "summary": "about 10% faster per query, same recall; needs Ollama 0.40 or newer"
+      }
+    ],
+    "endpoint": {
+      "backend": "ollama",
+      "error": null,
+      "model": null,
+      "url": null
+    },
+    "env_overrides": [],
+    "errors": [],
+    "etag": "<etag>",
+    "exists": true,
+    "file": {
+      "embed": {
+        "ollama_url": "http://127.0.0.1:<port>"
+      },
+      "hook": {
+        "threshold": 0.7
+      }
+    },
+    "path": "<root>/config.toml",
+    "secrets": {
+      "backup.drive_token": "unset",
+      "backup.key": "unset",
+      "embed.token": "unset"
+    },
+    "surface_weights": {
+      "hook": {
+        "authority": 0.0,
+        "current": 1.0,
+        "decay": {
+          "enabled": false,
+          "floor": 0.1,
+          "grace_days": 90.0,
+          "half_life_days": 100.0
+        },
+        "investigating": 1.0,
+        "markdown": 1.0,
+        "memory": 1.0,
+        "pdf": 1.0,
+        "proposed": 1.0,
+        "superseded": 0.88,
+        "transcript": 0.45,
+        "web": 1.0
+      },
+      "mcp": {
+        "authority": 0.0,
+        "current": 1.0,
+        "decay": {
+          "enabled": false,
+          "floor": 0.1,
+          "grace_days": 90.0,
+          "half_life_days": 100.0
+        },
+        "investigating": 1.0,
+        "markdown": 1.0,
+        "memory": 1.0,
+        "pdf": 1.0,
+        "proposed": 1.0,
+        "superseded": 0.88,
+        "transcript": 0.85,
+        "web": 1.0
+      }
+    }
+  },
+  "status": 200
+}

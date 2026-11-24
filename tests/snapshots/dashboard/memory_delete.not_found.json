@@ -1,0 +1,6 @@
+{
+  "body": {
+    "error": "no memory with id `000000000000`; run `rhebok memory list`"
+  },
+  "status": 404
+}

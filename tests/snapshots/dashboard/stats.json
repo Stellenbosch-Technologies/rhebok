@@ -1,0 +1,26 @@
+{
+  "body": {
+    "bench": null,
+    "bench_at": null,
+    "bench_provenance": null,
+    "by_source": {
+      "markdown": 1
+    },
+    "chunks": 1,
+    "documents": 1,
+    "hook_threshold": 0.6600000262260437,
+    "memory": {},
+    "model": "qwen3-embedding:0.6b@512+qwen3",
+    "sessions_by_agent": {
+      "claude-code": 0,
+      "codex": 0
+    },
+    "skipped": [],
+    "skipped_ignored": 0,
+    "tiers": {
+      "hook": 1,
+      "mcp": 3
+    }
+  },
+  "status": 200
+}

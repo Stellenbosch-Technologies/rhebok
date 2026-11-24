@@ -1,0 +1,49 @@
+{
+  "body": {
+    "binary": "<root>/home/rhebok/bin/rhebok",
+    "checks": [
+      {
+        "detail": "this binary is <exe>, not <root>/home/rhebok/bin/rhebok",
+        "fix": {
+          "command": "\"<exe>\" install",
+          "kind": "command"
+        },
+        "name": "binary",
+        "ok": false
+      },
+      {
+        "detail": "no plugin files at <root>/home/rhebok/plugin",
+        "fix": {
+          "command": "\"<exe>\" install",
+          "kind": "command"
+        },
+        "name": "plugin",
+        "ok": false
+      },
+      {
+        "detail": "<depends on this machine>",
+        "fix": "<depends on this machine>",
+        "name": "claude",
+        "ok": "<depends on this machine>"
+      },
+      {
+        "detail": "<depends on this machine>",
+        "fix": "<depends on this machine>",
+        "name": "path",
+        "ok": "<depends on this machine>"
+      }
+    ],
+    "config": {
+      "errors": [],
+      "path": "<root>/config.toml"
+    },
+    "embed": {
+      "backend": "ollama",
+      "model": "qwen3-embedding:0.6b",
+      "url": "http://127.0.0.1:<port>"
+    },
+    "exe": "<exe>",
+    "root": "<root>/home/rhebok"
+  },
+  "status": 200
+}

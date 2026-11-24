@@ -1,3 +1,5 @@
+use rhebok::dashboard::core::agents::{self as core_agents, AgentChanged, AgentRequest};
+use rhebok::dashboard::core::{AgentRefusal, DashboardError};
 use rhebok::hook::PromptAgent;
 use rhebok::setup::agents::files::{backup_path, Unparseable};
 use rhebok::setup::agents::{
@@ -6,6 +8,20 @@ use rhebok::setup::agents::{
 };
 use rhebok::setup::Paths;
 use std::path::{Path, PathBuf};
+
+fn request(id: &str) -> AgentRequest {
+    AgentRequest {
+        id: id.to_string(),
+        instructions: false,
+    }
+}
+
+fn refused(result: Result<AgentChanged, DashboardError>) -> (AgentRefusal, String) {
+    match result {
+        Err(DashboardError::AgentRefused { kind, message }) => (kind, message),
+        other => panic!("expected an agent refusal, got {other:?}"),
+    }
+}
 
 struct Fx {
     _t: tempfile::TempDir,
@@ -157,8 +173,8 @@ fn a_file_that_does_not_parse_is_refused_and_left_byte_identical() {
     Cursor.disconnect(&fx.env).unwrap_err();
     assert_eq!(read(&file), garbage);
 
-    let (code, v) = api::connect(&fx.env, br#"{"id":"cursor"}"#);
-    assert_eq!(code, 409, "{v}");
+    let (kind, message) = refused(core_agents::connect(&fx.env, request("cursor")));
+    assert_eq!(kind, AgentRefusal::Unparseable, "{message}");
     assert_eq!(read(&file), garbage);
 }
 
@@ -457,8 +473,8 @@ fn the_api_lists_every_agent_and_round_trips_a_connect() {
         .unwrap()
         .contains("[mcp_servers.rhebok]"));
 
-    let (code, v) = api::connect(&fx.env, br#"{"id":"cursor"}"#);
-    assert_eq!(code, 200, "{v}");
+    let v =
+        serde_json::to_value(core_agents::connect(&fx.env, request("cursor")).unwrap()).unwrap();
     assert_eq!(v["agent"]["status"]["state"], "connected");
     assert_eq!(
         v["change"]["files"][0],
@@ -466,18 +482,30 @@ fn the_api_lists_every_agent_and_round_trips_a_connect() {
     );
     assert_eq!(v["change"]["backups"], serde_json::json!([]));
 
-    let (code, v) = api::disconnect(&fx.env, br#"{"id":"cursor"}"#);
-    assert_eq!(code, 200, "{v}");
+    let v =
+        serde_json::to_value(core_agents::disconnect(&fx.env, request("cursor")).unwrap()).unwrap();
     assert_eq!(v["agent"]["status"]["state"], "not_connected");
 
-    assert_eq!(api::connect(&fx.env, br#"{"id":"vim"}"#).0, 404);
-    assert_eq!(api::connect(&fx.env, b"not json").0, 400);
-    assert_eq!(api::connect(&fx.env, br#"{"id":""}"#).0, 400);
     assert_eq!(
-        api::connect(&fx.env, br#"{"id":"cursor","instructions":true}"#).0,
-        400
+        refused(core_agents::connect(&fx.env, request("vim"))).0,
+        AgentRefusal::UnknownAgent
     );
-    assert_eq!(api::connect(&fx.env, br#"{"id":"claude-code"}"#).0, 409);
+    match core_agents::connect(&fx.env, request("")) {
+        Err(DashboardError::BadRequest(m)) => assert_eq!(m, "no agent id given"),
+        other => panic!("a blank id is a bad request: {other:?}"),
+    }
+    let with_instructions = AgentRequest {
+        id: "cursor".to_string(),
+        instructions: true,
+    };
+    assert_eq!(
+        refused(core_agents::connect(&fx.env, with_instructions)).0,
+        AgentRefusal::BadOption
+    );
+    assert_eq!(
+        refused(core_agents::connect(&fx.env, request("claude-code"))).0,
+        AgentRefusal::Unavailable
+    );
 }
 
 #[test]
@@ -730,15 +758,9 @@ fn the_agents_api_answers_409_while_claude_desktop_runs() {
     let mut fx = fixture();
     desktop_running(&mut fx);
     write(&ClaudeDesktop::config_file(&fx.env), DESKTOP);
-    let (status, body) = api::connect(&fx.env, br#"{"id":"claude-desktop"}"#);
-    assert_eq!(status, 409, "{body}");
-    assert!(
-        body["error"]
-            .as_str()
-            .unwrap()
-            .contains("Claude Desktop is running"),
-        "{body}"
-    );
+    let (kind, message) = refused(core_agents::connect(&fx.env, request("claude-desktop")));
+    assert_eq!(kind, AgentRefusal::Unavailable, "{message}");
+    assert!(message.contains("Claude Desktop is running"), "{message}");
 }
 
 #[test]
@@ -883,13 +905,11 @@ fn only_an_unparseable_file_is_flagged_as_one_to_fix_by_hand() {
     let mut fx = fixture();
     let file = ClaudeDesktop::config_file(&fx.env);
     write(&file, "{ // not json\n}\n");
-    let (status, body) = api::connect(&fx.env, br#"{"id":"claude-desktop"}"#);
-    assert_eq!(status, 409, "{body}");
-    assert_eq!(body["unparseable"], true, "{body}");
+    let (kind, message) = refused(core_agents::connect(&fx.env, request("claude-desktop")));
+    assert_eq!(kind, AgentRefusal::Unparseable, "{message}");
 
     write(&file, DESKTOP);
     desktop_running(&mut fx);
-    let (status, body) = api::connect(&fx.env, br#"{"id":"claude-desktop"}"#);
-    assert_eq!(status, 409, "{body}");
-    assert_eq!(body["unparseable"], false, "{body}");
+    let (kind, message) = refused(core_agents::connect(&fx.env, request("claude-desktop")));
+    assert_eq!(kind, AgentRefusal::Unavailable, "{message}");
 }

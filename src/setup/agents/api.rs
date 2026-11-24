@@ -46,74 +46,83 @@ pub fn list(env: &AgentEnv) -> Value {
     json!({ "agents": rows, "snippets": snippets(env) })
 }
 
-#[derive(serde::Deserialize)]
-struct ActionBody {
-    id: String,
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct AgentRequest {
+    pub id: String,
     #[serde(default)]
-    instructions: bool,
+    pub instructions: bool,
 }
 
-fn parse_body(body: &[u8]) -> Result<ActionBody, (u16, Value)> {
-    let parsed: ActionBody = serde_json::from_slice(body)
-        .map_err(|e| (400, json!({ "error": format!("bad request body: {e}") })))?;
-    if parsed.id.trim().is_empty() {
-        return Err((400, json!({ "error": "no agent id given" })));
-    }
-    Ok(parsed)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentRefusal {
+    UnknownAgent,
+    BadOption,
+    Unavailable,
+    Unparseable,
+    Failed,
 }
 
-fn error_status(e: &anyhow::Error) -> u16 {
-    if e.downcast_ref::<Unparseable>().is_some() {
-        return 409;
-    }
-    match e.downcast_ref::<AgentError>() {
-        Some(AgentError::Unknown(_)) => 404,
-        Some(AgentError::BadOption(_)) => 400,
-        Some(AgentError::Unavailable(_)) => 409,
-        None => 500,
+impl AgentRefusal {
+    fn of(e: &anyhow::Error) -> Self {
+        if e.downcast_ref::<Unparseable>().is_some() {
+            return AgentRefusal::Unparseable;
+        }
+        match e.downcast_ref::<AgentError>() {
+            Some(AgentError::Unknown(_)) => AgentRefusal::UnknownAgent,
+            Some(AgentError::BadOption(_)) => AgentRefusal::BadOption,
+            Some(AgentError::Unavailable(_)) => AgentRefusal::Unavailable,
+            None => AgentRefusal::Failed,
+        }
     }
 }
 
-fn error_body(e: &anyhow::Error) -> Value {
-    json!({
-        "error": format!("{e:#}"),
-        "unparseable": e.downcast_ref::<Unparseable>().is_some(),
-    })
+#[derive(Debug, Clone)]
+pub struct AgentFailure {
+    pub kind: AgentRefusal,
+    pub message: String,
+}
+
+impl From<anyhow::Error> for AgentFailure {
+    fn from(e: anyhow::Error) -> Self {
+        AgentFailure {
+            kind: AgentRefusal::of(&e),
+            message: format!("{e:#}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AgentChanged {
+    pub agent: Value,
+    pub change: Change,
 }
 
 fn outcome(
     env: &AgentEnv,
     id: &str,
     act: impl FnOnce(&dyn Agent) -> anyhow::Result<Change>,
-) -> (u16, Value) {
-    let agent = match super::find(id) {
-        Ok(a) => a,
-        Err(e) => return (error_status(&e), error_body(&e)),
-    };
-    match act(agent.as_ref()) {
-        Ok(change) => (
-            200,
-            json!({ "agent": agent_json(agent.as_ref(), env), "change": change }),
-        ),
-        Err(e) => (error_status(&e), error_body(&e)),
-    }
+) -> Result<AgentChanged, AgentFailure> {
+    let agent = super::find(id)?;
+    let change = act(agent.as_ref())?;
+    Ok(AgentChanged {
+        agent: agent_json(agent.as_ref(), env),
+        change,
+    })
 }
 
-pub fn connect(env: &AgentEnv, body: &[u8]) -> (u16, Value) {
-    let req = match parse_body(body) {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
+pub(crate) fn connect_agent(
+    env: &AgentEnv,
+    req: &AgentRequest,
+) -> Result<AgentChanged, AgentFailure> {
     let opts = ConnectOptions {
         instructions: req.instructions,
     };
     outcome(env, &req.id, |a| super::connect(a, env, &opts))
 }
 
-pub fn disconnect(env: &AgentEnv, body: &[u8]) -> (u16, Value) {
-    let req = match parse_body(body) {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
+pub(crate) fn disconnect_agent(
+    env: &AgentEnv,
+    req: &AgentRequest,
+) -> Result<AgentChanged, AgentFailure> {
     outcome(env, &req.id, |a| a.disconnect(env))
 }

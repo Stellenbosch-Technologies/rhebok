@@ -2,6 +2,7 @@
 mod common;
 
 mod agents;
+mod app_launcher;
 mod audit;
 #[cfg(feature = "backup")]
 mod backup_cli;
@@ -28,6 +29,7 @@ mod chunk;
 mod cli;
 mod config_edit;
 mod context_cli;
+mod dashboard_core;
 mod digests;
 mod embed;
 mod embed_openai;

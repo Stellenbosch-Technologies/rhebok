@@ -1,0 +1,22 @@
+{
+  "body": {
+    "memories": [
+      {
+        "doc_id": "35b9b309dc040daae666744d1adae902",
+        "facts": {
+          "confidence": 100,
+          "created": 1767225600,
+          "kind": "fact",
+          "origin": "user"
+        },
+        "id": "978cc96cf93b",
+        "project_name": null,
+        "text": "PgBouncer runs in transaction mode in this deployment.",
+        "title": "PgBouncer runs in transaction mode in this deployment",
+        "uri": "memory://fact/978cc96cf93b"
+      }
+    ],
+    "unavailable": null
+  },
+  "status": 200
+}
