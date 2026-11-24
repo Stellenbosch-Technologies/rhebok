@@ -1,5 +1,14 @@
 # rhebok
 
+[![Stellenbosch-Technologies/rhebok MCP server](https://glama.ai/mcp/servers/Stellenbosch-Technologies/rhebok/badges/score.svg)](https://glama.ai/mcp/servers/Stellenbosch-Technologies/rhebok)
+[![CI](https://github.com/Stellenbosch-Technologies/rhebok/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Stellenbosch-Technologies/rhebok/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Stellenbosch-Technologies/rhebok)](https://github.com/Stellenbosch-Technologies/rhebok/releases/latest)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+[![Platform: macOS | Linux](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#install)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](docs/install.md)
+[![MCP server](https://img.shields.io/badge/MCP-server-blue)](docs/usage.md)
+[![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange?logo=rust)](https://www.rust-lang.org)
+
 Your coding agent starts every session knowing nothing you have not pasted in.
 The decision you wrote up last month, the fix you found in yesterday's
 session, the paper in your Downloads folder: it can use none of them unless
