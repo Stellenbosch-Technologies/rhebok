@@ -977,7 +977,9 @@ fn main() -> Result<()> {
                     &prompt,
                     cwd.as_deref(),
                     session.as_deref(),
-                    || rhebok::retrieve_for(&cfg, rhebok::config::Surface::Hook),
+                    |profile| {
+                        rhebok::retrieve_for_profile(&cfg, rhebok::config::Surface::Hook, profile)
+                    },
                 )
             } else {
                 rhebok::context::build(&cfg, &prompt, cwd.as_deref())
