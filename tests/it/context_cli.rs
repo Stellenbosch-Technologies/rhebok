@@ -150,41 +150,77 @@ fn fake_url(cfg: &Path) -> String {
     line.split('"').nth(1).unwrap().to_string()
 }
 
-fn mcp_call(s: &Sandbox, tool: &str, args: serde_json::Value) -> serde_json::Value {
-    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("rhebok"))
-        .env("RHEBOK_DB", &s.db)
-        .env("RHEBOK_CONFIG", &s.cfg)
-        .arg("mcp")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    let mut stdout = BufReader::new(child.stdout.take().unwrap());
-    let mut send = |m: serde_json::Value| writeln!(stdin, "{m}").unwrap();
-    let mut recv = || loop {
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        if !line.trim().is_empty() {
-            return serde_json::from_str::<serde_json::Value>(&line).unwrap();
+struct McpServer {
+    child: std::process::Child,
+    stdin: std::process::ChildStdin,
+    stdout: BufReader<std::process::ChildStdout>,
+    next_id: u64,
+}
+
+impl McpServer {
+    fn start(s: &Sandbox) -> McpServer {
+        let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("rhebok"))
+            .env("RHEBOK_DB", &s.db)
+            .env("RHEBOK_CONFIG", &s.cfg)
+            .arg("mcp")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut server = McpServer {
+            child,
+            stdin,
+            stdout,
+            next_id: 1,
+        };
+        server.request(
+            "initialize",
+            serde_json::json!({"protocolVersion":"2025-06-18","capabilities":{},
+                "clientInfo":{"name":"t","version":"0"}}),
+        );
+        server.send(serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+        server
+    }
+
+    fn send(&mut self, m: serde_json::Value) {
+        writeln!(self.stdin, "{m}").unwrap();
+    }
+
+    fn request(&mut self, method: &str, params: serde_json::Value) -> serde_json::Value {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.send(serde_json::json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}));
+        loop {
+            let mut line = String::new();
+            self.stdout.read_line(&mut line).unwrap();
+            if !line.trim().is_empty() {
+                return serde_json::from_str::<serde_json::Value>(&line).unwrap();
+            }
         }
-    };
-    send(
-        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
-        "protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}),
-    );
-    recv();
-    send(serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
-    send(
-        serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
-        "name": tool, "arguments": args}}),
-    );
-    let reply = recv();
-    let _ = child.kill();
-    let _ = child.wait();
-    let text = reply["result"]["content"][0]["text"].as_str().unwrap();
-    serde_json::from_str(text).unwrap()
+    }
+
+    fn call(&mut self, tool: &str, args: serde_json::Value) -> serde_json::Value {
+        let reply = self.request(
+            "tools/call",
+            serde_json::json!({"name": tool, "arguments": args}),
+        );
+        let text = reply["result"]["content"][0]["text"].as_str().unwrap();
+        serde_json::from_str(text).unwrap()
+    }
+}
+
+impl Drop for McpServer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+fn mcp_call(s: &Sandbox, tool: &str, args: serde_json::Value) -> serde_json::Value {
+    McpServer::start(s).call(tool, args)
 }
 
 #[test]
@@ -276,6 +312,20 @@ fn a_tool_call_searches_with_the_mcp_budget_and_the_prehook_with_the_hooks() {
         serde_json::json!({ "message": PROMPT, "prehook": true }),
     );
     assert_eq!(prehook["budget_ms"], hook, "{prehook}");
+}
+
+#[test]
+fn a_prehook_call_searches_at_the_tier_the_config_names_after_the_server_started() {
+    let s = indexed("[hook]\nquality = 1\n[prehook]\ninjector = \"mod\"\n");
+    let mut server = McpServer::start(&s);
+    let config = std::fs::read_to_string(&s.cfg).unwrap();
+    std::fs::write(&s.cfg, config.replace("quality = 1", "quality = 2")).unwrap();
+    let prehook = server.call(
+        "rhebok_context",
+        serde_json::json!({ "message": PROMPT, "prehook": true }),
+    );
+    assert_eq!(prehook["notes"], serde_json::json!([]), "{prehook}");
+    assert!(prehook["block"].is_string(), "{prehook}");
 }
 
 #[test]

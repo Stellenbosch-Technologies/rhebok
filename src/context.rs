@@ -80,7 +80,7 @@ pub fn build_for_prehook(
     prompt: &str,
     cwd: Option<&Path>,
     session: Option<&str>,
-    retriever: impl FnOnce() -> Result<Retriever>,
+    retriever: impl FnOnce(&Profile) -> Result<Retriever>,
 ) -> Context {
     let cfg = Config::load();
     let injector = cfg.prehook.injector;
@@ -96,16 +96,11 @@ pub fn build_for_prehook(
     if let Some(s) = session {
         let _ = crate::prehook::mark_mod_running(&Config::db_path(), s);
     }
+    let profile = cfg.profile_for(Surface::Hook);
     Context {
         injector: Some(injector.as_str()),
         status_style,
-        ..build_with(
-            &cfg,
-            prompt,
-            cwd,
-            &cfg.profile_for(Surface::Hook),
-            retriever,
-        )
+        ..build_with(&cfg, prompt, cwd, &profile, || retriever(&profile))
     }
 }
 

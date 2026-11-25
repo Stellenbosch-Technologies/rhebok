@@ -563,30 +563,28 @@ impl RhebokTools {
     }
 
     pub fn context(&self, args: &ContextArgs) -> crate::context::Context {
-        let profile = self.context_profile(args.prehook == Some(true));
-        let retriever = || self.retriever_for(crate::config::Surface::Hook, &profile);
         let cwd = args.cwd.as_deref().map(std::path::Path::new);
         if args.prehook == Some(true) {
-            crate::context::build_for_prehook(
+            return crate::context::build_for_prehook(
                 &args.message,
                 cwd,
                 args.session.as_deref(),
-                retriever,
-            )
-        } else {
-            crate::context::build_with(&self.config, &args.message, cwd, &profile, retriever)
-        }
-    }
-
-    fn context_profile(&self, prehook: bool) -> Profile {
-        let mut profile = self.config.profile_for(crate::config::Surface::Hook);
-        if !prehook {
-            profile.budget_ms = profile.budget_ms.max(
-                self.config
-                    .profile_for(crate::config::Surface::Mcp)
-                    .budget_ms,
+                |profile| self.retriever_for(crate::config::Surface::Hook, profile),
             );
         }
+        let profile = self.context_profile();
+        crate::context::build_with(&self.config, &args.message, cwd, &profile, || {
+            self.retriever_for(crate::config::Surface::Hook, &profile)
+        })
+    }
+
+    fn context_profile(&self) -> Profile {
+        let mut profile = self.config.profile_for(crate::config::Surface::Hook);
+        profile.budget_ms = profile.budget_ms.max(
+            self.config
+                .profile_for(crate::config::Surface::Mcp)
+                .budget_ms,
+        );
         profile
     }
 
