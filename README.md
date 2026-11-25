@@ -1,6 +1,7 @@
 # rhebok
 
 [![Stellenbosch-Technologies/rhebok MCP server](https://glama.ai/mcp/servers/Stellenbosch-Technologies/rhebok/badges/score.svg)](https://glama.ai/mcp/servers/Stellenbosch-Technologies/rhebok)
+[![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/stellenbosch-technologies/rhebok)
 [![CI](https://github.com/Stellenbosch-Technologies/rhebok/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Stellenbosch-Technologies/rhebok/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/Stellenbosch-Technologies/rhebok)](https://github.com/Stellenbosch-Technologies/rhebok/releases/latest)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
