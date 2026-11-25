@@ -113,7 +113,12 @@ wait "$APP_PID" 2>/dev/null
 APP_PID=""
 if [ "$pref_before" = absent ]; then
     defaults delete com.stelltec.rhebok >/dev/null 2>&1
-    sleep 1
+    rm -f "$PREF"
+    pref_waited=0
+    while [ ! -e "$PREF" ] && [ "$pref_waited" -lt 6 ]; do
+        sleep 0.5
+        pref_waited=$((pref_waited + 1))
+    done
     ok "8c the app left no preferences in the real home" "$([ -e "$PREF" ] && echo present || echo absent)" "absent"
 else
     echo "skip  8c $PREF existed before the run; left alone"
