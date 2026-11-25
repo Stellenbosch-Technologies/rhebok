@@ -727,15 +727,28 @@ impl Store {
             return Ok(Vec::new());
         }
         let cypher = format!(
-            "MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk) WHERE c.id IN $ids \
+            "MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk) WHERE c.id = $id \
              RETURN {HIT_RETURN}, 0.0"
         );
-        self.rows_to_hits(
-            &cypher,
-            vec![("ids", string_list(chunk_ids))],
-            |raw| raw,
-            |_| 0.0,
-        )
+        let mut hits = Vec::with_capacity(chunk_ids.len());
+        for id in chunk_ids {
+            hits.extend(self.rows_to_hits(
+                &cypher,
+                vec![("id", Value::String(id.clone()))],
+                |raw| raw,
+                |_| 0.0,
+            )?);
+        }
+        Ok(hits)
+    }
+
+    fn chunk_ids_of(&self, cypher: &str, seeds: &[String]) -> Vec<String> {
+        match self.exec(cypher, vec![("seeds", string_list(seeds))]) {
+            Ok(rows) => rows
+                .filter_map(|row| row.first().and_then(as_string))
+                .collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     /// Graph expansion from seed chunks. Neighbours arrive with score 0.0 and are
@@ -753,16 +766,15 @@ impl Store {
         // reproducible and numerically ordered; chunk_id is "{doc_id}:{ord}", so
         // ordering by the whole id string would sort the ordinal lexicographically
         // ("…:10" before "…:8"). Expanded hits all score 0.0, so without an explicit
-        // order fusion's tie-break would see arbitrary storage order. `c.ord` must
-        // also be projected in RETURN DISTINCT — otherwise `c` is out of scope for
-        // ORDER BY and lbug 0.19.1 raises "Binder exception: Variable c is not in
-        // scope"; it's appended after the score literal so rows_to_hits' fixed
-        // column indices (0..=7) are unaffected.
+        // order fusion's tie-break would see arbitrary storage order. `c.doc_id`
+        // and `c.ord` must also be projected in RETURN DISTINCT — otherwise `c` is
+        // out of scope for ORDER BY and lbug 0.19.1 raises "Binder exception:
+        // Variable c is not in scope".
         let adjacent = format!(
             "MATCH (s:Chunk)-[:NEXT_CHUNK*1..{depth}]-(c:Chunk) \
              WHERE s.id IN $seeds AND NOT c.id IN $seeds \
              MATCH (d:Document)-[:HAS_CHUNK]->(c) \
-             RETURN DISTINCT {HIT_RETURN}, 0.0, c.ord ORDER BY c.doc_id, c.ord LIMIT {max_neighbors}"
+             RETURN DISTINCT c.id, c.doc_id, c.ord ORDER BY c.doc_id, c.ord LIMIT {max_neighbors}"
         );
 
         // First chunk of each linked document — the note you would have clicked to.
@@ -802,17 +814,11 @@ impl Store {
               (r, _ | WHERE r.kind IN ['wikilink', 'superseded-by'])]->(d:Document) \
              WHERE s.id IN $seeds \
              MATCH (d)-[:HAS_CHUNK]->(c:Chunk) WHERE c.ord = 0 AND NOT c.id IN $seeds \
-             RETURN DISTINCT {HIT_RETURN}, 0.0, c.ord ORDER BY c.doc_id, c.ord LIMIT {max_neighbors}"
+             RETURN DISTINCT c.id, c.doc_id, c.ord ORDER BY c.doc_id, c.ord LIMIT {max_neighbors}"
         );
 
-        let adjacent_hits = self.rows_to_hits(
-            &adjacent,
-            vec![("seeds", string_list(seeds))],
-            |s| s,
-            |_| 0.0,
-        )?;
-        let linked_hits =
-            self.rows_to_hits(&linked, vec![("seeds", string_list(seeds))], |s| s, |_| 0.0)?;
+        let adjacent_ids = self.chunk_ids_of(&adjacent, seeds);
+        let linked_ids = self.chunk_ids_of(&linked, seeds);
 
         // Interleave rather than concatenate-then-truncate. Each query has its own
         // LIMIT, so appending meant adjacency could fill the budget by itself and
@@ -820,24 +826,24 @@ impl Store {
         // would have clicked to") is usually the more interesting result, while an
         // adjacent chunk is a continuation of something already matched.
         let mut seen = std::collections::HashSet::new();
-        let mut out: Vec<Hit> = Vec::with_capacity(max_neighbors);
-        let mut a = adjacent_hits.into_iter();
-        let mut l = linked_hits.into_iter();
+        let mut chosen: Vec<String> = Vec::with_capacity(max_neighbors);
+        let mut a = adjacent_ids.into_iter();
+        let mut l = linked_ids.into_iter();
         loop {
             let (na, nl) = (a.next(), l.next());
             if na.is_none() && nl.is_none() {
                 break;
             }
-            for hit in [na, nl].into_iter().flatten() {
-                if out.len() < max_neighbors && seen.insert(hit.chunk_id.clone()) {
-                    out.push(hit);
+            for id in [na, nl].into_iter().flatten() {
+                if chosen.len() < max_neighbors && seen.insert(id.clone()) {
+                    chosen.push(id);
                 }
             }
-            if out.len() >= max_neighbors {
+            if chosen.len() >= max_neighbors {
                 break;
             }
         }
-        Ok(out)
+        self.hydrate(&chosen)
     }
 
     /// `score` maps the raw row value to the fused-ordering score; `relevance`
