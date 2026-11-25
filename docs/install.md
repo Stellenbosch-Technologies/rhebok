@@ -15,6 +15,21 @@ original beside it as `<file>.rhebok-bak`), and the vector-search extension
 that the database library keeps under `~/.lbdb`. See [Uninstall](#uninstall)
 for what each command removes.
 
+On a Mac, `rhebok install` also places `Rhebok.app`, the native dashboard,
+in `~/Applications`. If that step fails, it prints a warning. The rest of the
+install still succeeds. Run `rhebok app` to start it.
+
+If the app is not installed, `rhebok app` says why. In a release build, it
+says "Rhebok.app is not installed; run rhebok install to place it". In a
+build from source, it says "Rhebok.app is not installed; build and place it
+with make install". On Linux, it says "the native app is macOS only; run
+rhebok dashboard for the web one".
+
+`rhebok app` looks for the app that rhebok placed in `~/Applications`, then
+in rhebok's `bin` folder, then beside the `rhebok` program. The app finds a
+Homebrew rhebok in `/opt/homebrew/opt/rhebok/bin/rhebok` or
+`/usr/local/opt/rhebok/bin/rhebok`.
+
 ## Before you start
 
 You need:
@@ -119,6 +134,10 @@ itself into its own folder.
 
    If it says "No such xattr", the file wasn't marked, and that's fine.
 
+   Do not download the app archive, `rhebok-app-<target>.tar.gz`, in your
+   browser. Your browser marks it, and macOS blocks the app inside it.
+   `./rhebok install` in step 5 downloads the app and places it.
+
 5. Install:
 
    ```bash
@@ -147,7 +166,8 @@ Homebrew downloads the build for your machine and checks it against its
 checksum. It does not mark the program as downloaded from the internet, so a
 Mac runs it without a warning. `rhebok install` then sets rhebok up as
 [Step 2](#step-2-answer-the-installers-questions) describes, except that the
-program stays where Homebrew put it and Homebrew puts it on your PATH.
+program stays where Homebrew put it and Homebrew puts it on your PATH. On a
+Mac, `rhebok install` also places `Rhebok.app` in `~/Applications`.
 
 ### Found rhebok in Claude Code's plugin menu?
 
@@ -339,10 +359,12 @@ rhebok update
 
 It downloads the newest release, checks it and installs it. If Homebrew
 installed rhebok, it runs `brew update` and `brew upgrade rhebok` instead,
-then `rhebok install`. The dashboard's Health tab has the same button. Restart your agents afterwards. Once a day, a
-new Claude Code session checks whether a newer release exists and tells you
-when one does. Nothing installs until you run `rhebok update`. An update
-never downloads the optional distillation model.
+then `rhebok install`. The dashboard's Health tab has the same button. On a
+Mac, the update also replaces `~/Applications/Rhebok.app`. Restart your
+agents afterwards. Once a day, a new Claude Code session checks whether a
+newer release exists and tells you when one does. Nothing installs until you
+run `rhebok update`. An update never downloads the optional distillation
+model.
 
 A dashboard or an index that was already running keeps the old binary until
 it restarts. `rhebok restart`, or the **Restart** button on the Health tab,
@@ -372,6 +394,10 @@ Option A; later updates work as usual. From 0.2.0 on, `rhebok update` takes
 the program and ignores any other regular file at the archive root, so a
 release that adds a file there does not break it.
 
+A plain `brew upgrade` does not run `rhebok install`, so the app keeps its old
+version. Run `rhebok install` to update it. The app shows this message when it
+is older than rhebok.
+
 To switch the daily check off:
 
 ```toml
@@ -386,9 +412,11 @@ rhebok uninstall            # removes rhebok, its plugin, the PATH link, and its
 rhebok uninstall --purge    # also deletes everything rhebok stored: index, memories, config, golden set, backup key
 ```
 
-Both refuse while an index is running. Your notes are never touched. If
-Homebrew installed rhebok, finish with `brew uninstall rhebok`, which removes
-the program itself.
+Both refuse while an index is running. On a Mac, both also remove
+`~/Applications/Rhebok.app` when rhebok placed it. Both leave a folder or
+link there that belongs to another program. Both print a warning for it.
+Your notes are never touched. If Homebrew installed rhebok, finish with
+`brew uninstall rhebok`, which removes the program itself.
 
 Plain `rhebok uninstall` removes the program, the Claude Code plugin and its
 cache, the `rhebok` links on your PATH, and rhebok's entries in every
@@ -436,6 +464,11 @@ LadybugDB's prebuilt library, and its Intel Mac version references
 `___cpu_model`, which Apple's linker cannot resolve. Setting
 `LBUG_BUILD_FROM_SOURCE=1` makes the build compile LadybugDB itself instead;
 that route is untested.
+
+A build from source never downloads `Rhebok.app`. In that build,
+`rhebok install` prints this warning: "Rhebok.app was not placed: this is a
+development build; build and place it with make install". Run `make install`
+to build and place the app.
 
 1. Install a current stable Rust toolchain with [rustup](https://rustup.rs).
 2. Install a compiler:
@@ -508,7 +541,8 @@ Run `rhebok status` first. It names the problem.
 - **macOS says it can't verify rhebok, or stops it the moment it starts:**
   the file came from a browser and still has the "downloaded" mark. Run
   `xattr -d com.apple.quarantine rhebok` on the unpacked file, or use Option A,
-  B or D, which never add the mark.
+  B or D, which never add the mark. Do not download the app archive in a
+  browser: `rhebok install` downloads it.
 - **`gh release download` says "no assets match":** the release has no build
   for your machine. [Build from source](#build-from-source).
 - **`curl` returns 404:** no release has been published yet;

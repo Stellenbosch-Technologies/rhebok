@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod app;
 pub mod claude;
 pub mod install;
 pub mod migrate;
@@ -19,6 +20,7 @@ pub struct Paths {
     pub update_status: PathBuf,
     pub link_dirs: Vec<PathBuf>,
     pub claude_cache: PathBuf,
+    pub applications: PathBuf,
     pub homebrew: Option<PathBuf>,
 }
 
@@ -38,6 +40,7 @@ impl Paths {
         };
         let mut paths = Paths::at(&root, link_dirs, home.join(".claude/plugins/cache/rhebok"));
         paths.db = db;
+        paths.applications = home.join("Applications");
         let exe = std::env::current_exe().and_then(|e| e.canonicalize()).ok();
         match exe.as_deref().and_then(homebrew_prefix) {
             Some(prefix) => paths.installed_by_homebrew(&prefix),
@@ -56,8 +59,13 @@ impl Paths {
             update_status: root.join("update.status"),
             link_dirs,
             claude_cache,
+            applications: root.join("Applications"),
             homebrew: None,
         }
+    }
+
+    pub fn app_bundle(&self) -> PathBuf {
+        self.applications.join(app::BUNDLE_NAME)
     }
 
     pub fn installed_by_homebrew(self, prefix: &Path) -> Paths {

@@ -12,3 +12,17 @@ pub mod tabs;
 pub mod theme;
 pub mod version_gate;
 pub mod widgets;
+
+pub fn version_line() -> String {
+    format!("rhebok-app {}", rhebok::VERSION)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_line_names_the_app_and_the_shared_version() {
+        assert_eq!(version_line(), format!("rhebok-app {}", rhebok::VERSION));
+    }
+}

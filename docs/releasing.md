@@ -22,8 +22,9 @@ later release could match; br8n's is headed `## br8n 0.1.0` for that reason.
 
 A release must carry all three targets (`aarch64-apple-darwin`,
 `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`); the workflow
-refuses to publish one that is missing any of them. It publishes exactly nine
-assets: a `rhebok-<target>.tar.gz` and a `rhebok-<target>.sha256` per target,
+refuses to publish one that is missing any of them. It publishes exactly
+eleven assets: a `rhebok-<target>.tar.gz` and a `rhebok-<target>.sha256` per
+target, `rhebok-app-aarch64-apple-darwin.tar.gz` and its `.sha256`,
 `install.sh`, `rhebok-mcp.mcpb` and `server.json`.
 
 Each archive holds exactly three files, in this order: `rhebok`, `LICENSE`
@@ -36,11 +37,25 @@ a link or a directory. A `notices` job writes `THIRD-PARTY-NOTICES.md` once, and
 every build job packs it with `scripts/package-release.sh`. The notices are
 not a release asset of their own.
 
+The app archive holds only `Rhebok.app`. `scripts/package-app.sh` builds it
+with these entries: `Contents/Info.plist` (XML), `Contents/MacOS/rhebok-app`,
+`Contents/Resources/Rhebok.icns`, `Contents/Resources/LICENSE`,
+`Contents/Resources/THIRD-PARTY-NOTICES.md` and
+`Contents/_CodeSignature/CodeResources`. The bundle id is
+`com.stelltec.rhebok`. The bundle is signed ad hoc and not notarized.
+`scripts/third-party-notices.sh <out> --app` writes the app's notices.
+`scripts/app-smoke.sh` proves the bundle. `release-smoke.sh` calls it when
+given a third argument, and the macOS `app-smoke` job in `scripts/ci-local.sh`
+calls it too. The CLI archives never hold the app. Only a binary built with
+`RHEBOK_RELEASE_BUILD` set, which only `release.yml` sets, downloads the app.
+
 The macOS binary links OpenSSL statically and needs nothing from Homebrew. It
 is signed ad hoc and not notarized. `install.sh`, `gh release download` and
 `rhebok update` fetch it with tools that set no quarantine attribute, so it
 runs without a warning. A tarball saved through a browser is quarantined; see
-Option C, step 4, in the install guide.
+Option C, step 4, in the install guide. A browser-downloaded app archive is
+also quarantined, and Gatekeeper blocks its ad-hoc bundle. Tell users to use
+`install.sh`.
 
 The workflow takes roughly ten to twenty minutes between the merge and the
 release being published, plus the few minutes the `notices` job needs before
@@ -138,7 +153,7 @@ this order:
 5. When the dry run is green, run it for real:
    `gh workflow run release.yml --ref main -f dry_run=false`. It publishes
    only from `main`, and only if `v<version>` is not released yet. Confirm
-   that the release has all nine assets.
+   that the release has all eleven assets.
 6. Update the Homebrew formula, as [Homebrew](#homebrew) below describes.
 
 From then on, a version bump merged to `main` publishes the release with no

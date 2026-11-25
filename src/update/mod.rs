@@ -291,6 +291,32 @@ fn run_phases(opts: &UpdateOpts, phase: &mut Phase<'_>) -> Result<Outcome> {
     phase.set("extracting", tgz_name.clone());
     let new_bin = download::extract_single(&tgz_path, &staging.0.join("unpacked"))?;
 
+    if let Some(unpacked) = new_bin.parent() {
+        let app_tgz = release::asset(&release, &crate::setup::app::archive_name(&opts.target));
+        let app_sha = release::asset(&release, &crate::setup::app::checksum_name(&opts.target));
+        if let (Ok(app_tgz), Ok(app_sha)) = (app_tgz, app_sha) {
+            phase.set("downloading", app_tgz.name.clone());
+            let fetched = download::download(
+                &app_tgz.url,
+                opts.token.as_deref(),
+                &agent,
+                &unpacked.join(&app_tgz.name),
+            )
+            .and_then(|_| {
+                download::download(
+                    &app_sha.url,
+                    opts.token.as_deref(),
+                    &agent,
+                    &unpacked.join(&app_sha.name),
+                )
+            });
+            if fetched.is_err() {
+                let _ = std::fs::remove_file(unpacked.join(&app_tgz.name));
+                let _ = std::fs::remove_file(unpacked.join(&app_sha.name));
+            }
+        }
+    }
+
     phase.set("verifying", format!("{} --version", new_bin.display()));
     let out = std::process::Command::new(&new_bin)
         .arg("--version")

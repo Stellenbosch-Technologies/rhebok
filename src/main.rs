@@ -1692,19 +1692,30 @@ fn main() -> Result<()> {
         ),
         Cmd::App { args } => {
             use std::os::unix::process::CommandExt;
-            let root_app = rhebok::setup::Paths::from_env().root.join("bin/rhebok-app");
+            let paths = rhebok::setup::Paths::from_env();
             let beside_cli = std::env::current_exe()
                 .ok()
                 .map(|exe| exe.with_file_name("rhebok-app"));
-            let app = [Some(root_app.clone()), beside_cli]
-                .into_iter()
-                .flatten()
-                .find(|candidate| candidate.exists())
-                .unwrap_or(root_app);
-            if !app.exists() {
-                eprintln!("rhebok-app is not installed; run rhebok update");
+            let bundle = paths.app_bundle();
+            let ours = rhebok::setup::app::existing(&bundle) == rhebok::setup::app::Existing::Ours;
+            let app = [
+                ours.then(|| bundle.join(rhebok::setup::app::APP_EXECUTABLE)),
+                Some(paths.root.join("bin/rhebok-app")),
+                beside_cli,
+            ]
+            .into_iter()
+            .flatten()
+            .find(|candidate| candidate.exists());
+            let Some(app) = app else {
+                eprintln!(
+                    "{}",
+                    rhebok::setup::app::not_installed_message(
+                        cfg!(target_os = "macos"),
+                        rhebok::setup::app::RELEASE_BUILD
+                    )
+                );
                 std::process::exit(1);
-            }
+            };
             let err = std::process::Command::new(&app).args(&args).exec();
             anyhow::bail!("could not start {}: {err}", app.display());
         }
@@ -1795,6 +1806,17 @@ fn main() -> Result<()> {
                 embed,
                 confirm: confirm_on_stdin,
                 pull: rhebok::setup::ollama::pull,
+                app: cfg!(target_os = "macos").then(|| rhebok::setup::app::AppOpts {
+                    target: env!("RHEBOK_TARGET").to_string(),
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    exe: std::env::current_exe().unwrap_or_default(),
+                    download: rhebok::setup::app::RELEASE_BUILD.then(|| {
+                        rhebok::setup::app::Download {
+                            api: rhebok::update::release::api_base(),
+                            token: rhebok::update::release::token(),
+                        }
+                    }),
+                }),
             };
             let mut report = rhebok::setup::install::install(&paths, &opts)?;
             if let Some(model) = &custom_ollama {

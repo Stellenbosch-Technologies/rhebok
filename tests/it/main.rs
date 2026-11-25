@@ -69,6 +69,7 @@ mod retrieve_memory;
 mod retrieve_primitives;
 mod retrieve_profile;
 mod scope;
+mod setup_app;
 mod setup_claude;
 mod setup_homebrew;
 mod setup_install;

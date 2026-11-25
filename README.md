@@ -142,6 +142,7 @@ the index in the background.
 
 ```bash
 rhebok dashboard            # search, graph, memories, health and settings in the browser
+rhebok app                  # the same dashboard as a native Mac app, Rhebok.app
 rhebok search "query"       # search from the terminal
 rhebok index                # pick up new or changed files
 rhebok status               # index size, settings and any problems

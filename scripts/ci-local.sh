@@ -6,16 +6,17 @@ usage() {
 Usage: scripts/ci-local.sh [--only job[,job]] [--skip job[,job]] [--perf <base-ref>]
 
 Runs the jobs .github/workflows/ci.yml and audit.yml run, on this machine.
-Jobs: fmt clippy test targets msrv dashboard e2e app audit plugin perf
+Jobs: fmt clippy test targets msrv dashboard e2e app app-smoke audit plugin perf
 Before any job that builds, scripts/fetch-lbug.sh verifies the pinned LadybugDB library.
 audit is skipped when cargo-audit is not installed.
 plugin runs only here, not in ci.yml, and is skipped when claude is not on the PATH.
 perf runs only with --perf, against the release binary built from <base-ref>.
 app checks the native app in app/ on macOS with its pinned toolchain, and is skipped elsewhere.
+app-smoke packages the app with --dev and installs, starts and removes it in a throwaway HOME; macOS only.
 USAGE
 }
 
-ALL_JOBS=(fmt clippy test targets msrv dashboard e2e app audit plugin perf)
+ALL_JOBS=(fmt clippy test targets msrv dashboard e2e app app-smoke audit plugin perf)
 ONLY=""
 SKIP=""
 PERF_BASE=""
@@ -136,6 +137,36 @@ job_app() {
     cargo "+$toolchain" test --locked --features shoot)
 }
 
+job_app-smoke() {
+  if [ "$(uname -s)" != Darwin ]; then
+    echo "SKIP: the native app builds only on macOS"
+    return 99
+  fi
+  local toolchain work version
+  toolchain="$(app_toolchain)"
+  if [ -z "$toolchain" ]; then
+    echo "SKIP: the app's pinned toolchain is not installed (rustup toolchain install $(sed -n 's/^rust-version = "\(.*\)"$/\1/p' app/Cargo.toml))"
+    return 99
+  fi
+  work="$ROOT/target/ci-local/app-smoke"
+  rm -rf "$work/ssl" "$work"/rhebok-app-aarch64-apple-darwin.tar.gz
+  mkdir -p "$work/ssl"
+  local prefix
+  prefix="$(brew --prefix openssl@3 2>/dev/null)"
+  if [ ! -f "$prefix/lib/libssl.a" ] || [ ! -f "$prefix/lib/libcrypto.a" ]; then
+    echo "SKIP: no static OpenSSL archives (brew install openssl@3), so the bundle would link Homebrew's dylibs"
+    return 99
+  fi
+  ln -s "$prefix/lib/libssl.a" "$prefix/lib/libcrypto.a" "$work/ssl/"
+  cargo build --release || return 1
+  (cd app &&
+    RUSTFLAGS="-L $work/ssl -C link-args=-Wl,-export_dynamic" CARGO_TARGET_DIR="$work/target" \
+      cargo "+$toolchain" build --release --locked) || return 1
+  version="$(target/release/rhebok --version | awk '{print $2}')"
+  scripts/package-app.sh "$work/target/release/rhebok-app" "$version" --dev "$work/rhebok-app-aarch64-apple-darwin.tar.gz" &&
+    sh scripts/app-smoke.sh target/release/rhebok "$work/rhebok-app-aarch64-apple-darwin.tar.gz" "$version"
+}
+
 job_audit() {
   if ! command -v cargo-audit >/dev/null; then
     echo "SKIP: cargo-audit is not installed (cargo install --locked cargo-audit@0.23.0)"
@@ -171,7 +202,7 @@ job_perf() {
   return $status
 }
 
-for job in clippy test msrv e2e app perf; do
+for job in clippy test msrv e2e app app-smoke perf; do
   if selected "$job"; then
     scripts/fetch-lbug.sh || { echo "ci-local: the pinned LadybugDB library could not be verified" >&2; exit 1; }
     break

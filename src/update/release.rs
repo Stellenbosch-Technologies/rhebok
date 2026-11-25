@@ -92,7 +92,25 @@ pub fn client(agent: &str, timeout: std::time::Duration) -> Result<reqwest::bloc
 }
 
 pub fn fetch_latest(api: &str, token: Option<&str>, agent: &str) -> Result<Option<Release>> {
-    let url = format!("{}/releases/latest", api.trim_end_matches('/'));
+    fetch_release(api, "latest", token, agent)
+}
+
+pub fn fetch_tag(
+    api: &str,
+    tag: &str,
+    token: Option<&str>,
+    agent: &str,
+) -> Result<Option<Release>> {
+    fetch_release(api, &format!("tags/{tag}"), token, agent)
+}
+
+fn fetch_release(
+    api: &str,
+    route: &str,
+    token: Option<&str>,
+    agent: &str,
+) -> Result<Option<Release>> {
+    let url = format!("{}/releases/{route}", api.trim_end_matches('/'));
     let mut req = client(agent, std::time::Duration::from_secs(5))?
         .get(&url)
         .header("Accept", "application/vnd.github+json");

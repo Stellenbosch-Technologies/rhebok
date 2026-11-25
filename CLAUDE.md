@@ -112,7 +112,8 @@ reintroduce one: it froze the archive layout. A 0.1.0 binary accepted only an
 archive holding the single file `rhebok`, so it cannot unpack these archives
 and has to be reinstalled once. Adding a directory, a nested path or a link to
 the archive still makes every installed updater refuse the update; only a
-regular file at the root is safe to add.
+regular file at the root is safe to add. The app therefore ships as its own
+asset, `rhebok-app-<target>.tar.gz`, because it is a directory.
 
 **Integration tests are ONE binary, `it`, plus thirteen that must stay
 separate.** `Cargo.toml` sets `autotests = false`; `tests/it/main.rs` declares

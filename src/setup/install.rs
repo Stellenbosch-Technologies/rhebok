@@ -16,6 +16,7 @@ pub struct InstallOpts {
     pub embed: Option<&'static crate::embed::choice::EmbedChoice>,
     pub confirm: fn(&str, bool) -> bool,
     pub pull: fn(&str) -> Result<()>,
+    pub app: Option<super::app::AppOpts>,
 }
 
 #[derive(Debug, Default)]
@@ -132,6 +133,11 @@ pub fn install(paths: &Paths, opts: &InstallOpts) -> Result<InstallReport> {
         paths.bin.display(),
         opts.version
     ));
+    if let Some(app) = &opts.app {
+        let placed = super::app::install_app(paths, app);
+        r.lines.extend(placed.lines);
+        r.warnings.extend(placed.warnings);
+    }
     Ok(r)
 }
 
@@ -534,6 +540,10 @@ pub fn uninstall(paths: &Paths, opts: &UninstallOpts) -> Result<UninstallReport>
                 .to_string(),
         );
     }
+
+    let app = super::app::uninstall_app(paths);
+    r.lines.extend(app.lines);
+    r.warnings.extend(app.warnings);
 
     if opts.purge {
         std::fs::remove_dir_all(&paths.root)

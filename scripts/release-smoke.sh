@@ -1,7 +1,7 @@
 #!/bin/sh
 # Smoke-tests a PACKAGED release tarball the way a fresh machine would run it.
 #
-#   sh scripts/release-smoke.sh rhebok-<target>.tar.gz <version>
+#   sh scripts/release-smoke.sh rhebok-<target>.tar.gz <version> [rhebok-app-<target>.tar.gz]
 #
 # Every assertion runs; each prints what it checked and what it saw; the exit
 # status is 1 at the end if any failed. Needs no Ollama: the corpus is indexed
@@ -16,11 +16,15 @@
 # on the write path by design, so neither of those can catch it.
 set -u
 
-ARCHIVE="${1:?usage: release-smoke.sh <tarball> <version>}"
-VERSION="${2:?usage: release-smoke.sh <tarball> <version>}"
+ARCHIVE="${1:?usage: release-smoke.sh <tarball> <version> [app archive]}"
+VERSION="${2:?usage: release-smoke.sh <tarball> <version> [app archive]}"
+
+APP_ARCHIVE="${3:-}"
 
 FAILS=0
+COUNT=0
 ok() { # label got want [output to show on failure]
+    COUNT=$((COUNT + 1))
     if [ "$2" = "$3" ]; then
         printf 'ok    %s: %s\n' "$1" "$2"
     else
@@ -85,9 +89,17 @@ ok "8 LICENSE is the AGPL" "$(file_has "$T/LICENSE" "GNU AFFERO GENERAL PUBLIC L
 ok "9 notices list the Rust crates" "$(file_has "$T/THIRD-PARTY-NOTICES.md" "- lbug ")" "found"
 ok "10 notices carry the font licence" "$(file_has "$T/THIRD-PARTY-NOTICES.md" "SIL OPEN FONT LICENSE")" "found"
 
+if [ -n "$APP_ARCHIVE" ]; then
+    sh "$(dirname "$0")/app-smoke.sh" "$BIN" "$APP_ARCHIVE" "$VERSION"
+    ok "11 app-smoke" "$?" "0"
+    mkdir -p "$T/app"
+    tar -xzf "$APP_ARCHIVE" -C "$T/app"
+    ok "12 app notices list gpui" "$(file_has "$T/app/Rhebok.app/Contents/Resources/THIRD-PARTY-NOTICES.md" "- gpui")" "found"
+fi
+
 if [ "$FAILS" -eq 0 ]; then
-    echo "release-smoke: 10 assertions, all passed"
+    echo "release-smoke: $COUNT assertions, all passed"
     exit 0
 fi
-echo "release-smoke: $FAILS assertion(s) FAILED"
+echo "release-smoke: $FAILS of $COUNT assertion(s) FAILED"
 exit 1

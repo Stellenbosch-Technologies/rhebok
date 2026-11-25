@@ -362,20 +362,24 @@ impl Backend for Staged {
     }
 }
 
+pub fn gate_refusal(gate: &Gate, show: bool) -> Result<(), String> {
+    if *gate == Gate::Ok || show {
+        return Ok(());
+    }
+    Err(format!(
+        "version gate refused: {}",
+        crate::shell::gate_message(gate)
+    ))
+}
+
 pub fn render(target: Option<TabId>) -> Result<RgbaImage, String> {
     guard_agent_writes_from_env()?;
     guard_settings_writes_from_env()?;
     guard_onboarding_writes_from_env()?;
     let onboarding = std::env::var(PARITY_ONBOARDING).ok();
     let tab = target.unwrap_or_default();
-    let cli = rhebok::setup::Paths::from_env().bin;
-    let gate = version_gate::check(&cli, rhebok::VERSION);
-    if gate != Gate::Ok {
-        return Err(format!(
-            "version gate refused: {}",
-            crate::shell::gate_message(&gate)
-        ));
-    }
+    let gate = version_gate::check(&version_gate::installed_cli(), rhebok::VERSION);
+    gate_refusal(&gate, std::env::var(PARITY_GATE).is_ok())?;
     let mut cx = HeadlessAppContext::with_platform(
         gpui_kit::platform::current_platform(true).text_system(),
         Arc::new(Assets),
@@ -478,6 +482,7 @@ pub const PARITY_MEMORIES: &str = "RHEBOK_PARITY_MEMORIES";
 pub const PARITY_INTEGRATIONS: &str = "RHEBOK_PARITY_INTEGRATIONS";
 pub const PARITY_SETTINGS: &str = "RHEBOK_PARITY_SETTINGS";
 pub const PARITY_GRAPH: &str = "RHEBOK_PARITY_GRAPH";
+pub const PARITY_GATE: &str = "RHEBOK_PARITY_GATE";
 pub const PARITY_ONBOARDING: &str = "RHEBOK_PARITY_ONBOARDING";
 pub const PARITY_FOLDER: &str = "RHEBOK_PARITY_FOLDER";
 pub const PARITY_PID: u32 = 1;
@@ -1273,6 +1278,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use crate::version_gate::Gate;
+
     use super::{
         guard_agent_writes, guard_onboarding_writes, guard_settings_writes, throwaway_home,
         WritePaths,
@@ -1304,6 +1311,18 @@ mod tests {
                 codex_home: Some(self.path("home/.codex")),
             }
         }
+    }
+
+    #[test]
+    fn a_mismatched_gate_is_refused_unless_the_shot_asks_to_show_it() {
+        let mismatch = Gate::Mismatch {
+            cli: "0.2.3".into(),
+            app: "0.2.2".into(),
+        };
+        let refused = super::gate_refusal(&mismatch, false).unwrap_err();
+        assert!(refused.contains("run rhebok install"), "{refused}");
+        assert!(super::gate_refusal(&mismatch, true).is_ok());
+        assert!(super::gate_refusal(&Gate::Ok, false).is_ok());
     }
 
     #[test]

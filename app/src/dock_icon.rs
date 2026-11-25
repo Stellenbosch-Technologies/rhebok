@@ -107,6 +107,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_committed_bundle_icon_is_what_compose_draws() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/bundle-icon.png");
+        if std::env::var_os("RHEBOK_WRITE_BUNDLE_ICON").is_some() {
+            std::fs::write(path, png()).unwrap();
+            return;
+        }
+        let committed = std::fs::read(path).expect("assets/bundle-icon.png is committed");
+        assert!(
+            committed == png(),
+            "regenerate with RHEBOK_WRITE_BUNDLE_ICON=1 cargo test the_committed_bundle_icon"
+        );
+    }
+
+    #[test]
     fn the_art_is_the_512_pixel_plugin_icon() {
         let art = art();
         assert_eq!((art.width(), art.height()), (512, 512));

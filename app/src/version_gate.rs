@@ -1,10 +1,12 @@
 use std::os::unix::process::ExitStatusExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 const CLI_LIMIT: Duration = Duration::from_secs(3);
 const CLI_POLL: Duration = Duration::from_millis(10);
+
+pub const HOMEBREW_PREFIXES: [&str; 2] = ["/opt/homebrew", "/usr/local"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Gate {
@@ -12,6 +14,28 @@ pub enum Gate {
     Missing { fix: String },
     Unanswered { fix: String },
     Mismatch { cli: String, app: String },
+}
+
+pub fn cli_path(bin: &Path, prefixes: &[&Path]) -> PathBuf {
+    if bin.exists() {
+        return bin.to_path_buf();
+    }
+    prefixes
+        .iter()
+        .map(|prefix| prefix.join("opt/rhebok/bin/rhebok"))
+        .find(|path| path.exists())
+        .unwrap_or_else(|| bin.to_path_buf())
+}
+
+pub fn installed_cli() -> PathBuf {
+    installed_cli_among(
+        &rhebok::setup::Paths::from_env(),
+        &HOMEBREW_PREFIXES.map(Path::new),
+    )
+}
+
+fn installed_cli_among(paths: &rhebok::setup::Paths, prefixes: &[&Path]) -> PathBuf {
+    cli_path(&paths.bin, prefixes)
 }
 
 pub fn check(cli: &Path, own: &str) -> Gate {
@@ -111,6 +135,61 @@ mod tests {
         std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         path
+    }
+
+    fn touch(path: &Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "").unwrap();
+    }
+
+    #[test]
+    fn cli_path_prefers_the_self_installed_cli() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("bin/rhebok");
+        touch(&bin);
+        let brew = tmp.path().join("brew");
+        touch(&brew.join("opt/rhebok/bin/rhebok"));
+        assert_eq!(cli_path(&bin, &[brew.as_path()]), bin);
+    }
+
+    #[test]
+    fn cli_path_falls_back_to_homebrews_cli() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("bin/rhebok");
+        let brew = tmp.path().join("brew");
+        let brewed = brew.join("opt/rhebok/bin/rhebok");
+        touch(&brewed);
+        assert_eq!(cli_path(&bin, &[brew.as_path()]), brewed);
+    }
+
+    #[test]
+    fn cli_path_with_no_cli_anywhere_is_the_self_installed_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bin = tmp.path().join("bin/rhebok");
+        let brew = tmp.path().join("brew");
+        assert_eq!(cli_path(&bin, &[brew.as_path()]), bin);
+    }
+
+    #[test]
+    fn the_installed_cli_under_homebrew_is_homebrews() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths =
+            rhebok::setup::Paths::at(&tmp.path().join("root"), vec![], tmp.path().join("cache"));
+        let brew = tmp.path().join("brew");
+        let brewed = brew.join("opt/rhebok/bin/rhebok");
+        touch(&brewed);
+        assert_eq!(installed_cli_among(&paths, &[brew.as_path()]), brewed);
+    }
+
+    #[test]
+    fn the_installed_cli_of_a_self_install_is_its_own_bin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths =
+            rhebok::setup::Paths::at(&tmp.path().join("root"), vec![], tmp.path().join("cache"));
+        touch(&paths.bin);
+        let brew = tmp.path().join("brew");
+        touch(&brew.join("opt/rhebok/bin/rhebok"));
+        assert_eq!(installed_cli_among(&paths, &[brew.as_path()]), paths.bin);
     }
 
     #[test]
