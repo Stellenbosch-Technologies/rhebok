@@ -24,6 +24,7 @@ pub mod model;
 pub mod pack;
 pub mod prehook;
 pub mod project;
+pub mod restart;
 pub mod retrieve;
 pub mod setup;
 pub mod sha256;

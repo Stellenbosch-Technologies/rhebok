@@ -101,6 +101,18 @@ fn record_exit(db: &Path, pid: u32, status: std::io::Result<std::process::ExitSt
     reaping.remove(&pid);
 }
 
+pub fn hand_over(db: &Path, from: u32, to: u32) {
+    let _reaping = reaping();
+    if let Some(mut record) = read_record(db).filter(|r| r.pid == from && !r.finished) {
+        record.pid = to;
+        record.started_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let _ = write_record(db, &record);
+    }
+}
+
 pub fn record_own_outcome(db: &Path, code: i32) {
     let _reaping = reaping();
     write_outcome(db, std::process::id(), code == 0, Some(code));
@@ -226,6 +238,26 @@ mod tests {
             (run.finished, run.ok, run.code),
             (true, Some(true), Some(0))
         );
+    }
+
+    #[test]
+    fn a_restarted_index_takes_over_only_the_unfinished_record_of_the_one_it_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("db");
+        let (old, new) = (dead_pid(), dead_pid());
+        write_record(&db, &unfinished(old)).unwrap();
+        hand_over(&db, old, new);
+        assert_eq!(read_record(&db).unwrap().pid, new);
+
+        let other = dead_pid();
+        hand_over(&db, other, old);
+        assert_eq!(read_record(&db).unwrap().pid, new);
+
+        let mut done = unfinished(old);
+        done.finished = true;
+        write_record(&db, &done).unwrap();
+        hand_over(&db, old, new);
+        assert_eq!(read_record(&db).unwrap().pid, old);
     }
 
     #[test]

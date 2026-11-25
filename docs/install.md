@@ -344,6 +344,16 @@ new Claude Code session checks whether a newer release exists and tells you
 when one does. Nothing installs until you run `rhebok update`. An update
 never downloads the optional distillation model.
 
+A dashboard or an index that was already running keeps the old binary until
+it restarts. `rhebok restart`, or the **Restart** button on the Health tab,
+stops every running dashboard and any running `rhebok index`, and starts them
+again on the installed binary: each dashboard on the port it had, and the
+index with the arguments it had. The index starts over: what it had not yet
+published is lost, and the live index is unchanged. In the native app,
+Restart does the same and then opens a new copy of the app from the installed
+binary, and the old copy closes. If the new copy does not start, the old one
+stays open and shows the reason.
+
 `rhebok update --check` reports the installed and latest versions without
 installing. If no release has been published yet, both commands say so and
 exit successfully, and `rhebok status` and the dashboard show "no release

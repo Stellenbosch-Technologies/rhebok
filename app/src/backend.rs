@@ -58,7 +58,14 @@ pub trait Backend: Send + Sync + 'static {
     fn index_start(&self, reindex: bool) -> Answer<IndexStarted>;
     fn index_status(&self) -> IndexRunView;
     fn update_start(&self) -> Answer<UpdateStarted>;
+    fn restart(&self) -> Answer<AppRestarted>;
     fn install(&self) -> InstallView;
+}
+
+#[derive(Debug, Clone)]
+pub struct AppRestarted {
+    pub pid: u32,
+    pub report: String,
 }
 
 pub struct CoreBackend {
@@ -172,6 +179,21 @@ impl Backend for CoreBackend {
 
     fn update_start(&self) -> Answer<UpdateStarted> {
         core::update::start(&Paths::from_env(), &self.cli)
+    }
+
+    fn restart(&self) -> Answer<AppRestarted> {
+        let paths = Paths::from_env();
+        let mut report = Vec::new();
+        rhebok::restart::restart(&paths, &mut report)
+            .map_err(|e| DashboardError::Conflict(format!("{e:#}")))?;
+        let app = crate::relaunch::installed_app(&paths, std::env::current_exe().ok());
+        let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+        let pid = crate::relaunch::relaunch(&app, &args, &paths.db.with_extension("log"))
+            .map_err(DashboardError::Internal)?;
+        Ok(AppRestarted {
+            pid,
+            report: String::from_utf8_lossy(&report).into_owned(),
+        })
     }
 
     fn install(&self) -> InstallView {
@@ -295,6 +317,10 @@ impl<B: Backend> Backend for RetryingReads<B> {
 
     fn update_start(&self) -> Answer<UpdateStarted> {
         self.inner.update_start()
+    }
+
+    fn restart(&self) -> Answer<AppRestarted> {
+        self.inner.restart()
     }
 
     fn install(&self) -> InstallView {
@@ -504,6 +530,7 @@ pub struct FixtureBackend {
     pub index_start: Canned<Answer<IndexStarted>>,
     pub index_status: Canned<IndexRunView>,
     pub update_start: Canned<Answer<UpdateStarted>>,
+    pub restart: Canned<Answer<AppRestarted>>,
     pub install: Canned<InstallView>,
     pub requests: Mutex<Vec<String>>,
     pub journal: Mutex<Vec<String>>,
@@ -545,6 +572,7 @@ impl Default for FixtureBackend {
             index_start: Canned::new(unset("index_start")),
             index_status: Canned::new(IndexRunView { run: None }),
             update_start: Canned::new(unset("update_start")),
+            restart: Canned::new(unset("restart")),
             install: Canned::new(InstallView {
                 root: PathBuf::new(),
                 binary: PathBuf::new(),
@@ -691,6 +719,11 @@ impl Backend for FixtureBackend {
     fn update_start(&self) -> Answer<UpdateStarted> {
         self.record("update_start".to_string());
         self.reply("update_start", &self.update_start)
+    }
+
+    fn restart(&self) -> Answer<AppRestarted> {
+        self.record("restart".to_string());
+        self.reply("restart", &self.restart)
     }
 
     fn install(&self) -> InstallView {

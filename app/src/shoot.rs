@@ -354,6 +354,9 @@ impl Backend for Staged {
     fn update_start(&self) -> Answer<rhebok::dashboard::core::update::UpdateStarted> {
         self.core.update_start()
     }
+    fn restart(&self) -> Answer<crate::backend::AppRestarted> {
+        self.core.restart()
+    }
     fn install(&self) -> rhebok::dashboard::core::install::InstallView {
         self.core.install()
     }

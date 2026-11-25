@@ -5,6 +5,7 @@
     "installed": "<version>",
     "latest": null,
     "no_release": false,
+    "pid": "<n>",
     "update": null,
     "update_available": null,
     "url": null

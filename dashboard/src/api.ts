@@ -21,7 +21,7 @@ export type Stats = {
 };
 export type Progress = { idle?: boolean; pct?: number; docs_done?: number; docs_total?: number; chunks?: number; eta_s?: number };
 export type UpdateStatus = { pid: number; started_at: number; from: string; to: string | null; phase: string; message: string; done: boolean; ok: boolean | null };
-export type VersionInfo = { installed: string; latest: string | null; url: string | null; checked_at: number | null; error: string | null; no_release: boolean; update_available: string | null; update: UpdateStatus | null };
+export type VersionInfo = { pid: number; installed: string; latest: string | null; url: string | null; checked_at: number | null; error: string | null; no_release: boolean; update_available: string | null; update: UpdateStatus | null };
 export type HitSummary = { chunk_id: string; doc_id: string; title: string; source_type: string; relevance: number; score: number; heading: string; excerpt: string; memory_kind?: string | null };
 /// `fused` is everything that cleared the relevance gate and survived
 /// diversity selection; `injected` is the subset of those chunk ids the
@@ -180,6 +180,8 @@ export async function startUpdate(): Promise<void> {
   } catch {}
   throw new Error(reason);
 }
+export type RestartStarted = { started: boolean; pid: number; dashboard_pid: number };
+export const startRestart = () => post<RestartStarted>("/api/restart", {});
 export type TomlValue = string | number | boolean | TomlValue[] | { [key: string]: TomlValue };
 export type TomlTable = { [key: string]: TomlValue };
 

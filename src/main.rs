@@ -207,6 +207,8 @@ enum Cmd {
         #[arg(long)]
         yes: bool,
     },
+    /// Stop the running dashboard and any running index, then start them again on the installed binary
+    Restart,
     /// Fetch the latest release, verify it, and let it install itself
     Update {
         /// Only report whether a newer version exists
@@ -1708,6 +1710,10 @@ fn main() -> Result<()> {
         }
         Cmd::Dashboard { port, no_open } => {
             rhebok::dashboard::serve(port, !no_open)?;
+        }
+        Cmd::Restart => {
+            let paths = rhebok::setup::Paths::from_env();
+            rhebok::restart::restart(&paths, &mut std::io::stdout())?;
         }
         Cmd::Install {
             yes,

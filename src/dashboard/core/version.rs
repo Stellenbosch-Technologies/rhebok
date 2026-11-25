@@ -2,6 +2,7 @@ use super::DashboardError;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct Version {
+    pub pid: u32,
     pub installed: String,
     pub latest: Option<String>,
     pub url: Option<String>,
@@ -30,6 +31,7 @@ pub fn version(refresh: bool) -> Result<Version, DashboardError> {
     let running = crate::update::Status::read(&paths.update_status)
         .filter(|s| s.done || crate::index::pid_is_alive(s.pid));
     Ok(Version {
+        pid: std::process::id(),
         installed: installed.to_string(),
         latest: check.as_ref().and_then(|c| c.latest.clone()),
         url: check.as_ref().and_then(|c| c.url.clone()),
