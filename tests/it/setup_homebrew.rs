@@ -66,6 +66,7 @@ fn homebrew_fixture() -> Fx {
         embed: None,
         confirm: |_, _| false,
         pull: |_| Ok(()),
+        app: None,
     };
     Fx {
         _t: t,

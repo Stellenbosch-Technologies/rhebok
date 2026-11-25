@@ -78,7 +78,7 @@ impl CoreBackend {
     pub fn from_env() -> CoreBackend {
         CoreBackend {
             config_path: Config::config_path(),
-            cli: Paths::from_env().bin,
+            cli: crate::version_gate::installed_cli(),
             agents: None,
         }
     }
@@ -934,6 +934,14 @@ mod tests {
             f.update_start.calls(),
         ];
         assert_eq!(calls, [1; 9]);
+    }
+
+    #[test]
+    fn the_backend_runs_the_cli_the_version_gate_checks() {
+        assert_eq!(
+            super::CoreBackend::from_env().cli,
+            crate::version_gate::installed_cli()
+        );
     }
 
     #[test]

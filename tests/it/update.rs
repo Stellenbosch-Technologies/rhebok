@@ -52,8 +52,12 @@ fn mirror(latest_version: &str, files: Vec<(String, Vec<u8>)>) -> String {
 }
 
 fn tarball(version: &str, record: &Path) -> Vec<u8> {
+    tarball_with(version, record, "")
+}
+
+fn tarball_with(version: &str, record: &Path, extra: &str) -> Vec<u8> {
     let script = format!(
-        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'rhebok {version}'; exit 0; fi\necho \"$*\" >> \"{}\"\nexit 0\n",
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'rhebok {version}'; exit 0; fi\necho \"$*\" >> \"{}\"\n{extra}exit 0\n",
         record.display()
     );
     let mut header = tar::Header::new_gnu();
@@ -81,6 +85,32 @@ fn assets(version: &str, record: &Path) -> Vec<(String, Vec<u8>)> {
     let name = format!("rhebok-{TARGET}.tar.gz");
     let sha = sha_line(&tgz, &name);
     vec![(name, tgz), (format!("rhebok-{TARGET}.sha256"), sha)]
+}
+
+fn listing_file(record: &Path) -> PathBuf {
+    record.with_extension("ls")
+}
+
+fn assets_with_app(version: &str, record: &Path) -> Vec<(String, Vec<u8>)> {
+    let tgz = tarball_with(
+        version,
+        record,
+        &format!(
+            "ls \"$(dirname \"$0\")\" > \"{}\"\n",
+            listing_file(record).display()
+        ),
+    );
+    let name = format!("rhebok-{TARGET}.tar.gz");
+    let sha = sha_line(&tgz, &name);
+    let app = b"not really an archive".to_vec();
+    let app_name = rhebok::setup::app::archive_name(TARGET);
+    let app_sha = sha_line(&app, &app_name);
+    vec![
+        (name, tgz),
+        (format!("rhebok-{TARGET}.sha256"), sha),
+        (app_name, app),
+        (rhebok::setup::app::checksum_name(TARGET), app_sha),
+    ]
 }
 
 struct Fx {
@@ -767,4 +797,44 @@ fn no_refusal_calls_the_release_repository_private_and_none_requires_a_token() {
     let msg =
         rhebok::update::release::refusal("https://api/x", StatusCode::FORBIDDEN, None).to_string();
     assert!(msg.contains("RHEBOK_GITHUB_TOKEN is optional"), "{msg}");
+}
+
+#[test]
+fn an_update_puts_the_app_archive_beside_the_new_binary() {
+    let fx = fixture("1.0.0");
+    let api = mirror("2.0.0", assets_with_app("2.0.0", &fx.record));
+    std::fs::create_dir_all(&fx.paths.root).unwrap();
+    assert!(matches!(
+        run(&opts(&fx, &api, false)).unwrap(),
+        Outcome::Updated { .. }
+    ));
+    let listing = std::fs::read_to_string(listing_file(&fx.record)).unwrap();
+    assert!(
+        listing
+            .lines()
+            .any(|l| l == rhebok::setup::app::archive_name(TARGET)),
+        "{listing}"
+    );
+    assert!(
+        listing
+            .lines()
+            .any(|l| l == rhebok::setup::app::checksum_name(TARGET)),
+        "{listing}"
+    );
+}
+
+#[test]
+fn an_update_from_a_release_without_the_app_still_installs() {
+    let fx = fixture("1.0.0");
+    let mut files = assets_with_app("2.0.0", &fx.record);
+    files.truncate(2);
+    let api = mirror("2.0.0", files);
+    std::fs::create_dir_all(&fx.paths.root).unwrap();
+    assert!(matches!(
+        run(&opts(&fx, &api, false)).unwrap(),
+        Outcome::Updated { .. }
+    ));
+    let listing = std::fs::read_to_string(listing_file(&fx.record)).unwrap();
+    assert!(!listing.contains("rhebok-app"), "{listing}");
+    assert!(fx.record.exists());
 }

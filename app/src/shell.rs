@@ -606,12 +606,12 @@ pub fn gate_message(gate: &Gate) -> String {
         Gate::Missing { fix } | Gate::Unanswered { fix } => fix.clone(),
         Gate::Mismatch { cli, app } => match (version_parts(cli), version_parts(app)) {
             (Some(c), Some(a)) if c < a => {
-                format!("rhebok {cli} is older than rhebok-app {app}; run rhebok update")
+                format!("rhebok {cli} is older than Rhebok {app}; run rhebok update")
             }
             (Some(c), Some(a)) if a < c => {
-                format!("rhebok-app {app} is older than rhebok {cli}; run rhebok update")
+                format!("Rhebok {app} is older than rhebok {cli}; run rhebok install")
             }
-            _ => format!("rhebok {cli} does not match rhebok-app {app}; run rhebok update"),
+            _ => format!("rhebok {cli} does not match Rhebok {app}; run rhebok install"),
         },
     }
 }
@@ -1042,18 +1042,18 @@ mod tests {
             })
         };
         assert_eq!(
-            mismatch("0.1.9", "0.2.0"),
-            "rhebok 0.1.9 is older than rhebok-app 0.2.0; run rhebok update"
+            mismatch("0.2.1", "0.2.2"),
+            "rhebok 0.2.1 is older than Rhebok 0.2.2; run rhebok update"
         );
         assert_eq!(
-            mismatch("0.10.0", "0.9.0"),
-            "rhebok-app 0.9.0 is older than rhebok 0.10.0; run rhebok update"
+            mismatch("0.2.2", "0.2.1"),
+            "Rhebok 0.2.1 is older than rhebok 0.2.2; run rhebok install"
         );
         assert_eq!(
-            mismatch("0.2.0-rc1", "0.2.0"),
-            "rhebok 0.2.0-rc1 does not match rhebok-app 0.2.0; run rhebok update"
+            mismatch("x", "0.2.2"),
+            "rhebok x does not match Rhebok 0.2.2; run rhebok install"
         );
-        assert!(!mismatch("0.1.9", "0.2.0").contains('`'));
+        assert!(!mismatch("0.2.1", "0.2.2").contains('`'));
     }
 
     #[gpui_kit::test]
@@ -1087,7 +1087,7 @@ mod tests {
             assert!(notice.visible());
             assert_eq!(
                 notice.label(),
-                Some("rhebok 0.1.9 is older than rhebok-app 0.2.0; run rhebok update")
+                Some("rhebok 0.1.9 is older than Rhebok 0.2.0; run rhebok update")
             );
             assert!(window.try_find("header").is_none());
             assert!(window.try_find("graph").is_none());

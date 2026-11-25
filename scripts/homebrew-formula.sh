@@ -59,6 +59,7 @@ class Rhebok < Formula
       connect your other agents and downloads the embedding model:
         rhebok install
 
+      On a Mac, rhebok install also places Rhebok.app in ~/Applications.
       rhebok needs Ollama running: https://ollama.com
       To update, run rhebok update: it runs brew upgrade rhebok, then rhebok install.
     EOS

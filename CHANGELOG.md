@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Native dashboard (macOS)
+
+- **Rhebok.app ships with each release.** `rhebok install` and `rhebok update`
+  place it in `~/Applications`, so you no longer build it from source.
+  Homebrew, `install.sh` and the dashboard's Update button place it too.
+  The app is signed ad hoc and not notarized.
+- **`rhebok app` starts `~/Applications/Rhebok.app`.** If it is missing, the
+  message names the fix: `rhebok install` in a release build, `make install`
+  in a build from source. On Linux it says the app is macOS only.
+- **A build from source never downloads the app.** `rhebok install` warns and
+  points to `make install`. The app finds a Homebrew rhebok on its own.
+- **`rhebok uninstall` removes `~/Applications/Rhebok.app`.** It removes only
+  a bundle that rhebok placed.
+- **The app's version message names the fix.** When the app is older than
+  rhebok, it says to run `rhebok install`.
+
 ## 0.2.2 — 2026-11-25
 
 ### MCP

@@ -72,6 +72,7 @@ fn fixture(version_printed: &str) -> Fx {
         embed: None,
         confirm: |_, _| false,
         pull: |_| Ok(()),
+        app: None,
     };
     Fx {
         _t: t,
@@ -197,6 +198,7 @@ fn clone_opts(o: &InstallOpts) -> InstallOpts {
         embed: o.embed,
         confirm: o.confirm,
         pull: o.pull,
+        app: None,
     }
 }
 
@@ -749,4 +751,74 @@ fn the_closing_summary_points_at_the_warnings_when_there_are_any() {
         assert!(summary.contains(&config.display().to_string()), "{summary}");
         assert!(summary.contains("rhebok index"), "{summary}");
     }
+}
+
+#[test]
+fn install_with_an_app_archive_beside_the_binary_reports_the_bundle() {
+    use rhebok::setup::app::{archive_name, checksum_name, AppOpts, BUNDLE_ID};
+    use sha2::Digest;
+    let mut fx = fixture("1.2.3");
+    let target = "test-target";
+    let built = fx.root.join("built");
+    std::fs::create_dir_all(&built).unwrap();
+    let archive = crate::setup_app::bundle_archive(&built, "1.2.3", BUNDLE_ID);
+    let bytes = std::fs::read(&archive).unwrap();
+    let dir = fx.opts.exe.parent().unwrap().to_path_buf();
+    std::fs::write(dir.join(archive_name(target)), &bytes).unwrap();
+    std::fs::write(
+        dir.join(checksum_name(target)),
+        format!("{}  x\n", hex::encode(sha2::Sha256::digest(&bytes))),
+    )
+    .unwrap();
+    fx.opts.app = Some(AppOpts {
+        target: target.to_string(),
+        version: "1.2.3".to_string(),
+        exe: fx.opts.exe.clone(),
+        download: None,
+    });
+    let report = install(&fx.paths, &fx.opts).unwrap();
+    assert!(
+        report.lines.iter().any(|l| l.starts_with("app:")),
+        "{:?}",
+        report.lines
+    );
+    assert!(fx.paths.app_bundle().is_dir());
+}
+
+#[test]
+fn purge_also_removes_the_bundle() {
+    let mut fx = installed_fixture();
+    let apps = fx._t.path().join("elsewhere/Applications");
+    fx.paths.applications = apps;
+    assert!(!fx.paths.applications.starts_with(&fx.paths.root));
+    let staging = fx._t.path().join("bundle-staging");
+    std::fs::create_dir_all(&staging).unwrap();
+    let archive = crate::setup_app::bundle_archive(&staging, "1.2.3", "com.stelltec.rhebok");
+    let staged = rhebok::setup::app::extract_bundle(&archive, &staging.join("unpack")).unwrap();
+    rhebok::setup::app::place_bundle(&staged, &fx.paths.app_bundle()).unwrap();
+    assert!(fx.paths.app_bundle().is_dir());
+    let report = uninstall(&fx.paths, &unopts(&fx, true)).unwrap();
+    assert!(!fx.paths.app_bundle().exists());
+    assert!(!fx.paths.root.exists());
+    assert!(
+        report
+            .lines
+            .contains(&format!("removed {}", fx.paths.app_bundle().display())),
+        "{:?}",
+        report.lines
+    );
+}
+
+#[test]
+fn uninstall_removes_the_bundle_without_a_purge() {
+    let mut fx = installed_fixture();
+    fx.paths.applications = fx._t.path().join("elsewhere/Applications");
+    let staging = fx._t.path().join("bundle-staging");
+    std::fs::create_dir_all(&staging).unwrap();
+    let archive = crate::setup_app::bundle_archive(&staging, "1.2.3", "com.stelltec.rhebok");
+    let staged = rhebok::setup::app::extract_bundle(&archive, &staging.join("unpack")).unwrap();
+    rhebok::setup::app::place_bundle(&staged, &fx.paths.app_bundle()).unwrap();
+    uninstall(&fx.paths, &unopts(&fx, false)).unwrap();
+    assert!(!fx.paths.app_bundle().exists());
+    assert!(fx.paths.db.join("graph.kz").is_file());
 }

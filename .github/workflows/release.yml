@@ -97,11 +97,16 @@ jobs:
         working-directory: dashboard
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Write the third-party notices
-        run: scripts/third-party-notices.sh THIRD-PARTY-NOTICES.md
+        run: |
+          set -eu
+          scripts/third-party-notices.sh THIRD-PARTY-NOTICES.md
+          scripts/third-party-notices.sh APP-THIRD-PARTY-NOTICES.md --app
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: third-party-notices
-          path: THIRD-PARTY-NOTICES.md
+          path: |
+            THIRD-PARTY-NOTICES.md
+            APP-THIRD-PARTY-NOTICES.md
           if-no-files-found: error
 
   build:
@@ -136,6 +141,8 @@ jobs:
           - { os: ubuntu-24.04,     target: x86_64-unknown-linux-gnu }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
     runs-on: ${{ matrix.os }}
+    env:
+      RHEBOK_RELEASE_BUILD: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -145,12 +152,22 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: runner.os == 'macOS'
+        with:
+          workspaces: |
+            . -> target
+            app -> target
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: runner.os != 'macOS'
       - name: Rerun lbug's build script against the pinned, checksum-verified LadybugDB library
         env:
           TARGET: ${{ matrix.target }}
         run: |
           cargo clean -p lbug --target "$TARGET"
           scripts/fetch-lbug.sh "$TARGET"
+          if [ "$RUNNER_OS" = macOS ]; then
+            cargo clean -p lbug --target "$TARGET" --manifest-path app/Cargo.toml
+          fi
       - name: Install OpenSSL dev headers (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
@@ -172,6 +189,11 @@ jobs:
       - env:
           TARGET: ${{ matrix.target }}
         run: cargo build --release --locked --target "$TARGET"
+      - name: Build Rhebok.app's binary (macOS)
+        if: runner.os == 'macOS'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release --locked --target "$TARGET" --manifest-path app/Cargo.toml
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: third-party-notices
@@ -187,11 +209,27 @@ jobs:
           scripts/package-release.sh "target/$TARGET/release/rhebok" \
             notices/THIRD-PARTY-NOTICES.md "rhebok-$TARGET.tar.gz"
           shasum -a 256 "rhebok-$TARGET.tar.gz" > "rhebok-$TARGET.sha256"
+      - name: Package Rhebok.app (macOS)
+        if: runner.os == 'macOS'
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -eu
+          scripts/package-app.sh "app/target/$TARGET/release/rhebok-app" "$VERSION" \
+            notices/APP-THIRD-PARTY-NOTICES.md "rhebok-app-$TARGET.tar.gz"
+          shasum -a 256 "rhebok-app-$TARGET.tar.gz" > "rhebok-app-$TARGET.sha256"
       - name: Smoke-test the packaged binary
         env:
           TARGET: ${{ matrix.target }}
           VERSION: ${{ needs.version.outputs.version }}
-        run: sh scripts/release-smoke.sh "rhebok-$TARGET.tar.gz" "$VERSION"
+        run: |
+          set -eu
+          if [ "$RUNNER_OS" = macOS ]; then
+            sh scripts/release-smoke.sh "rhebok-$TARGET.tar.gz" "$VERSION" "rhebok-app-$TARGET.tar.gz"
+          else
+            sh scripts/release-smoke.sh "rhebok-$TARGET.tar.gz" "$VERSION"
+          fi
       - name: Runtime budget gate (container of at most 8 GB / 4 CPUs)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         env:
@@ -220,6 +258,14 @@ jobs:
           path: |
             rhebok-${{ matrix.target }}.tar.gz
             rhebok-${{ matrix.target }}.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: runner.os == 'macOS'
+        with:
+          name: app-${{ matrix.target }}
+          path: |
+            rhebok-app-${{ matrix.target }}.tar.gz
+            rhebok-app-${{ matrix.target }}.sha256
           if-no-files-found: error
 
   bundle:
@@ -319,6 +365,11 @@ jobs:
           merge-multiple: true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: app-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
           name: mcp-bundle
           path: dist
       - name: The installer ships beside the binaries
@@ -337,11 +388,14 @@ jobs:
               test -f "$f" || { echo "::error::missing $f"; ls -l dist; exit 1; }
             done
           done
+          for f in dist/rhebok-app-aarch64-apple-darwin.tar.gz dist/rhebok-app-aarch64-apple-darwin.sha256; do
+            test -f "$f" || { echo "::error::missing $f"; ls -l dist; exit 1; }
+          done
           for f in dist/install.sh dist/rhebok-mcp.mcpb dist/server.json; do
             test -f "$f" || { echo "::error::missing $f"; ls -l dist; exit 1; }
           done
           n="$(ls dist | wc -l | tr -d ' ')"
-          [ "$n" -eq 9 ] || { echo "::error::expected exactly 9 files in dist, found $n"; ls -l dist; exit 1; }
+          [ "$n" -eq 11 ] || { echo "::error::expected exactly 11 files in dist, found $n"; ls -l dist; exit 1; }
       - name: Release notes from CHANGELOG.md
         env:
           VERSION: ${{ needs.version.outputs.version }}
@@ -365,7 +419,7 @@ jobs:
           make_latest: true
       - name: Every asset reached the release
         # action-gh-release creates the release before uploading assets, so a
-        # failed upload leaves a published release with fewer than 9 assets
+        # failed upload leaves a published release with fewer than 11 assets
         # that the gate would then treat as done forever. This step turns
         # that into a red job, with the recovery command in the message. It
         # is deliberately non-destructive — it only reads. !cancelled() so it
@@ -390,7 +444,7 @@ jobs:
             echo "::error::cannot read release v$VERSION ($(tr '\n' ' ' <view.err)); if it exists with missing assets, $fix"
             exit 1
           fi
-          [ "$n" -eq 9 ] || { echo "::error::release v$VERSION has $n assets, expected 9; $fix"; exit 1; }
+          [ "$n" -eq 11 ] || { echo "::error::release v$VERSION has $n assets, expected 11; $fix"; exit 1; }
 
   registry:
     needs: [version, publish]

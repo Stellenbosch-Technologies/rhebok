@@ -36,13 +36,17 @@ sha="rhebok-$target.sha256"
 curl -fsSL "$BASE/$tgz" -o "$tmp/$tgz" || { echo "rhebok: could not download $BASE/$tgz" >&2; exit 1; }
 curl -fsSL "$BASE/$sha" -o "$tmp/$sha" || { echo "rhebok: could not download $BASE/$sha" >&2; exit 1; }
 
-if command -v shasum >/dev/null 2>&1; then
-    actual="$(shasum -a 256 "$tmp/$tgz" | awk '{print $1}')"
-elif command -v sha256sum >/dev/null 2>&1; then
-    actual="$(sha256sum "$tmp/$tgz" | awk '{print $1}')"
-else
-    echo "rhebok: no sha256 tool (shasum or sha256sum) to verify the download" >&2; exit 1
-fi
+sha256_of() {
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
+    elif command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        return 1
+    fi
+}
+
+actual="$(sha256_of "$tmp/$tgz")" || { echo "rhebok: no sha256 tool (shasum or sha256sum) to verify the download" >&2; exit 1; }
 expected="$(awk '{print $1}' "$tmp/$sha")"
 if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
     echo "rhebok: checksum mismatch for $tgz: expected $expected, got $actual" >&2; exit 1
@@ -50,6 +54,27 @@ fi
 
 tar -xzf "$tmp/$tgz" -C "$tmp"
 [ -x "$tmp/rhebok" ] || { echo "rhebok: $tgz does not contain an executable named rhebok" >&2; exit 1; }
+
+if [ "$os_part" = apple-darwin ]; then
+    app_tgz="rhebok-app-$target.tar.gz"
+    app_sha="rhebok-app-$target.sha256"
+    app_failed=""
+    curl -fsSL "$BASE/$app_tgz" -o "$tmp/$app_tgz" || app_failed="$app_tgz"
+    if [ -z "$app_failed" ]; then
+        curl -fsSL "$BASE/$app_sha" -o "$tmp/$app_sha" || app_failed="$app_sha"
+    fi
+    if [ -n "$app_failed" ]; then
+        echo "rhebok: could not download the app ($BASE/$app_failed); rhebok install will try again" >&2
+        rm -f "$tmp/$app_tgz" "$tmp/$app_sha"
+    else
+        app_actual="$(sha256_of "$tmp/$app_tgz" || true)"
+        app_expected="$(awk '{print $1}' "$tmp/$app_sha")"
+        if [ -z "$app_actual" ] || [ "$app_expected" != "$app_actual" ]; then
+            echo "rhebok: warning: the app archive failed its checksum, so it was discarded; rhebok install will try again" >&2
+            rm -f "$tmp/$app_tgz" "$tmp/$app_sha"
+        fi
+    fi
+fi
 
 # `curl | sh` leaves stdin holding the script, so the model-pull prompt
 # would read the script. Hand the install a terminal when there is one.

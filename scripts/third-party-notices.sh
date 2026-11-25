@@ -1,7 +1,15 @@
 #!/bin/sh
 set -eu
 
-out="${1:?usage: scripts/third-party-notices.sh <output.md>}"
+usage="usage: scripts/third-party-notices.sh <output.md> [--app]"
+out="${1:?$usage}"
+app=false
+case "${2:-}" in
+    "") ;;
+    --app) app=true ;;
+    *) echo "third-party-notices: $usage" >&2; exit 2 ;;
+esac
+[ "$#" -le 2 ] || { echo "third-party-notices: $usage" >&2; exit 2; }
 cargo_about_version=0.9.3
 
 cd "$(dirname "$0")/.."
@@ -14,10 +22,15 @@ fail() {
 installed="$(cargo about --version 2>/dev/null || true)"
 [ "$installed" = "cargo-about $cargo_about_version" ] ||
     fail "needs cargo-about $cargo_about_version (found: ${installed:-none}); cargo install --locked --features cli cargo-about@$cargo_about_version"
-[ -d dashboard/node_modules ] ||
-    fail "dashboard/node_modules is missing; run npm ci --ignore-scripts in dashboard first"
+if $app; then
+    manifest=app/Cargo.toml
+else
+    manifest=Cargo.toml
+    [ -d dashboard/node_modules ] ||
+        fail "dashboard/node_modules is missing; run npm ci --ignore-scripts in dashboard first"
+fi
 
-lbug_dir="$(cargo metadata --format-version 1 --locked | python3 -c '
+lbug_dir="$(cargo metadata --format-version 1 --locked --manifest-path "$manifest" | python3 -c '
 import json, os, sys
 crates = [p for p in json.load(sys.stdin)["packages"] if p["name"] == "lbug" and p["source"]]
 if len(crates) != 1:
@@ -100,13 +113,29 @@ while read -r name kind path marker; do
     { printf '### %s\n\n' "$name"; fenced "$work/lbug-licence.txt"; } >> "$work/lbug.md"
 done < "$work/lbug.map"
 
-cargo about generate --locked --fail about.hbs -o "$work/rust.md"
-node scripts/dashboard-notices.mjs dashboard > "$work/dashboard.md"
+if $app; then
+    cargo about generate --locked --fail --manifest-path app/Cargo.toml -c app/about.toml about.hbs -o "$work/rust.md"
+    lucide_dir="$(cargo metadata --format-version 1 --locked --manifest-path app/Cargo.toml | python3 -c '
+import json, os, sys
+crates = [p for p in json.load(sys.stdin)["packages"] if p["name"] == "gpui-kit-assets" and p["source"]]
+if len(crates) != 1:
+    sys.exit("expected one registry gpui-kit-assets package, found %d" % len(crates))
+print(os.path.dirname(crates[0]["manifest_path"]))
+')" || fail "cargo metadata could not locate the gpui-kit-assets crate"
+    [ -s "$lucide_dir/LICENSE-LUCIDE" ] || fail "$lucide_dir/LICENSE-LUCIDE is missing or empty"
+else
+    cargo about generate --locked --fail about.hbs -o "$work/rust.md"
+    node scripts/dashboard-notices.mjs dashboard > "$work/dashboard.md"
+fi
 
 {
     printf '# Third-party notices\n\n'
     printf 'rhebok is licensed under the GNU Affero General Public License v3.0 only; see LICENSE.\n'
-    printf 'The rhebok binary also contains the third-party software listed below, each under its own licence.\n\n'
+    if $app; then
+        printf 'The Rhebok app also contains the third-party software listed below, each under its own licence.\n\n'
+    else
+        printf 'The rhebok binary also contains the third-party software listed below, each under its own licence.\n\n'
+    fi
     cat "$work/rust.md"
 
     printf '## LadybugDB bundled libraries\n\n'
@@ -115,18 +144,32 @@ node scripts/dashboard-notices.mjs dashboard > "$work/dashboard.md"
     cat "$work/lbug.md"
 
     printf '## OpenSSL\n\n'
-    printf 'The macOS binary links OpenSSL 3 statically; the Linux binaries load the system libssl at run time.\n'
+    if $app; then
+        printf 'The macOS app links OpenSSL 3 statically.\n'
+    else
+        printf 'The macOS binary links OpenSSL 3 statically; the Linux binaries load the system libssl at run time.\n'
+    fi
     printf 'OpenSSL 3 is Copyright The OpenSSL Project Authors and is licensed under the Apache License 2.0,\n'
     printf 'reproduced in full in the Rust crates section above.\n\n'
 
-    printf '## Dashboard JavaScript packages\n\n'
-    printf 'The dashboard served by rhebok dashboard is compiled from these npm packages.\n\n'
-    cat "$work/dashboard.md"
-    printf '\n'
+    if $app; then
+        printf '## Lucide icons\n\n'
+        printf 'The app embeds Lucide icons through the gpui-kit-assets crate.\n\n'
+        fenced "$lucide_dir/LICENSE-LUCIDE"
 
-    printf '## Dashboard fonts\n\n'
-    for font in dashboard/dist/fonts/*-OFL.txt; do
-        [ -f "$font" ] || fail "no OFL licence texts in dashboard/dist/fonts"
+        printf '## App fonts\n\n'
+        fonts=app/assets/fonts
+    else
+        printf '## Dashboard JavaScript packages\n\n'
+        printf 'The dashboard served by rhebok dashboard is compiled from these npm packages.\n\n'
+        cat "$work/dashboard.md"
+        printf '\n'
+
+        printf '## Dashboard fonts\n\n'
+        fonts=dashboard/dist/fonts
+    fi
+    for font in "$fonts"/*-OFL.txt; do
+        [ -f "$font" ] || fail "no OFL licence texts in $fonts"
         printf '### %s\n\n' "$(basename "$font" .txt)"
         fenced "$font"
     done
