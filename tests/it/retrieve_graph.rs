@@ -223,3 +223,125 @@ fn expansion_follows_wikilinks_and_not_lifecycle_edges() {
          reached {reached_from_dead:?}"
     );
 }
+
+const EXPAND_PROBE_STORE: &str = "RHEBOK_EXPAND_PROBE_STORE";
+const BULKY_DOCUMENTS: usize = 64;
+const BULKY_CHUNKS_PER_DOCUMENT: usize = 8;
+const BULKY_CHUNK_BYTES: usize = 128 * 1024;
+const BULKY_TEXT_BYTES: u64 =
+    (BULKY_DOCUMENTS * BULKY_CHUNKS_PER_DOCUMENT * BULKY_CHUNK_BYTES) as u64;
+
+fn expand_probe_seed() -> String {
+    Chunk::id(&Document::new_id("file:///seed.md"), 0)
+}
+
+fn write_a_seed_beside_unrelated_documents(idx: &rhebok::index::Indexer, chunk_bytes: usize) {
+    let mut seed = Document::new(
+        SourceType::Markdown,
+        "file:///seed.md",
+        "Seed",
+        &format!(
+            "# Seed\n\n{}\n\n## Second\n\n{}\n\nSee [[target]].",
+            "alpha ".repeat(400),
+            "beta ".repeat(400)
+        ),
+    );
+    seed.links = vec!["target".into()];
+    let target = Document::new(
+        SourceType::Markdown,
+        "file:///target.md",
+        "target",
+        "The answer is 42.",
+    );
+    idx.index_documents(&[seed.clone(), target.clone()])
+        .unwrap();
+    idx.resolve_links(&[seed, target]).unwrap();
+
+    idx.store()
+        .in_transaction(|store| {
+            for d in 0..BULKY_DOCUMENTS {
+                let doc = Document::new(
+                    SourceType::Markdown,
+                    &format!("file:///bulky-{d}.md"),
+                    &format!("Bulky {d}"),
+                    "",
+                );
+                store.upsert_document(&doc)?;
+                let chunks: Vec<Chunk> = (0..BULKY_CHUNKS_PER_DOCUMENT as i64)
+                    .map(|ord| Chunk {
+                        id: Chunk::id(&doc.id, ord),
+                        doc_id: doc.id.clone(),
+                        ord,
+                        text: "x".repeat(chunk_bytes),
+                        embed_text: format!("bulky {d} {ord}"),
+                        heading_path: String::new(),
+                        page_no: None,
+                    })
+                    .collect();
+                let vecs = vec![vec![0.5_f32; 4]; chunks.len()];
+                store.replace_chunks(&doc.id, &chunks, &vecs)?;
+            }
+            Ok(())
+        })
+        .unwrap();
+}
+
+fn peak_growth_of_one_expansion(chunk_bytes: usize) -> u64 {
+    let (dir, idx, _calls) = common::setup();
+    write_a_seed_beside_unrelated_documents(&idx, chunk_bytes);
+    drop(idx);
+
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "retrieve_graph::expand_footprint_probe",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(EXPAND_PROBE_STORE, dir.path())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "the probe failed: {stdout}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    stdout
+        .lines()
+        .find_map(|l| l.split_once("expand peak growth: ").map(|(_, v)| v))
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or_else(|| panic!("the probe printed no measurement: {stdout}"))
+}
+
+#[test]
+fn graph_expansion_does_not_read_the_text_of_chunks_it_does_not_return() {
+    let small = peak_growth_of_one_expansion(16);
+    let bulky = peak_growth_of_one_expansion(BULKY_CHUNK_BYTES);
+    let grown_by_text = bulky.saturating_sub(small);
+    assert!(
+        grown_by_text < BULKY_TEXT_BYTES / 4,
+        "one expansion peaked {grown_by_text} bytes higher when documents the seed never reaches \
+         held {BULKY_TEXT_BYTES} bytes of chunk text ({small} bytes with tiny chunks, {bulky} with \
+         bulky ones)"
+    );
+}
+
+#[test]
+#[ignore = "child process of graph_expansion_does_not_read_the_text_of_chunks_it_does_not_return"]
+fn expand_footprint_probe() {
+    let Some(dir) = std::env::var_os(EXPAND_PROBE_STORE) else {
+        return;
+    };
+    let store = rhebok::store::Store::open_existing(std::path::Path::new(&dir), 4).unwrap();
+    let before = rhebok::bench::synthetic::peak_rss_bytes();
+    let hits = store.expand(&[expand_probe_seed()], 2, 12).unwrap();
+    let grown = rhebok::bench::synthetic::peak_rss_bytes().saturating_sub(before);
+    let reached: std::collections::HashSet<String> = hits.iter().map(|h| h.uri.clone()).collect();
+    assert!(
+        reached.contains("file:///target.md") && !reached.iter().any(|u| u.contains("bulky")),
+        "the probe must reach the seed's own neighbours and nothing else; reached {reached:?}"
+    );
+    println!("expand peak growth: {grown}");
+}

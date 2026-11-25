@@ -294,6 +294,29 @@ database produced byte-identical pack files with both binaries.
 `pack_rows_come_back_sorted_by_chunk_id_with_their_own_documents_fields` pins
 the Rust-side sort and the join.
 
+**A read query that projects `c.text` reads every chunk's text unless it
+reaches the chunk by primary key.** lbug 0.19.1 plans `c.id IN $ids`, a second
+`MATCH` over `HAS_CHUNK`, and a variable-length walk from `$seeds` alike: a
+`SCAN_NODE_TABLE` of all of `Chunk` with every projected column, hash-joined
+against the seed side. Only `c.id = $id` becomes a `PRIMARY_KEY_SCAN`.
+`Store::expand` used to project `HIT_RETURN` straight from its two walks, so
+every tier-2-4 search built a hash table of the whole corpus's text to return
+at most twelve rows: a tier-3 search peaked at 310 MB on a 30k-chunk sandbox
+and 735 MB on a 100k-chunk one, and the native app measured 1.4-1.5 GB on the
+live index. The walks now return only `c.id`, `c.doc_id` and `c.ord`, and
+`Store::hydrate` fetches the chosen ids one primary-key lookup at a time: 152
+and 231 MB on the same two sandboxes, with byte-identical results over 1,780
+expanded hits. `EXPLAIN <query>` through `Connection::prepare` shows the plan.
+`graph_expansion_does_not_read_the_text_of_chunks_it_does_not_return` pins
+both halves in a child process of its own, because peak RSS is per process.
+What remains is a fixed cost of about 35 MB per expansion, the same with
+128-byte or 128 KiB chunks, and macOS malloc keeping fragmented pages after
+each search's open and close. The pages are bounded: malloc held 120-128 MB
+for 3.5 MB live from the 25th search to the 300th, and
+`malloc_zone_pressure_relief` reclaims none of it. Keeping one store open
+across searches is worse, not better: footprint rose from 150 to 211 MB over
+300 searches, because the buffer pool keeps the pages it read.
+
 ## Invariants that are not obvious from the code
 
 **The dashboard answers only requests whose `Host` names it.** `handle()` in
