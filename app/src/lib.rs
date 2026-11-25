@@ -4,6 +4,7 @@ pub mod chrome;
 pub mod dock_icon;
 pub mod graph;
 pub mod onboarding;
+pub mod relaunch;
 pub mod shell;
 #[cfg(feature = "shoot")]
 pub mod shoot;

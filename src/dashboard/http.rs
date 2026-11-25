@@ -121,6 +121,10 @@ pub(super) fn handle(mut stream: TcpStream, source: &ConfigSource, agents: Optio
                 let started = running_cli().and_then(|cli| core::update::start(&paths, &cli));
                 return accepted(&mut stream, started);
             }
+            "/api/restart" => {
+                let paths = crate::setup::Paths::from_env();
+                return accepted(&mut stream, core::update::restart(&paths));
+            }
             "/api/memory/save" => {
                 return match serde_json::from_slice::<core::memory_write::SaveRequest>(&body) {
                     Ok(req) => core_result(

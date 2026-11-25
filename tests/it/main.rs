@@ -63,6 +63,7 @@ mod project_memories;
 mod reindex_safety;
 mod remote_misconfigured;
 mod rerank;
+mod restart;
 mod retrieve_graph;
 mod retrieve_memory;
 mod retrieve_primitives;

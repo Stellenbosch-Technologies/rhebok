@@ -10,6 +10,8 @@ use crate::tabs::health::POLL;
 use crate::theme::{tokens, Tokens, Type, BODY_FACE, MONO, SANS};
 use crate::widgets::{ago, exact_text, inline_line, tracked, Rich};
 
+pub const RESTART_WARNING: &str = "An index is running. Restart stops it and starts it again: the work it has not yet published is lost, and the live index is unchanged.";
+
 pub struct VersionCard {
     version: Option<Version>,
     busy: bool,
@@ -20,6 +22,8 @@ pub struct VersionCard {
     tick: Option<Task<()>>,
     tick_in_flight: bool,
     action: Option<Task<()>>,
+    confirming: bool,
+    restarting: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +75,7 @@ pub fn status(v: &Version, t: &Tokens) -> Rich {
             );
             sans(
                 rich,
-                ". Restart Claude Code, and this dashboard: this page is still served by the old binary.",
+                ". Restart this app so it runs the new version, and restart Claude Code.",
                 t.ink,
             )
         }
@@ -164,6 +168,8 @@ impl VersionCard {
             tick: None,
             tick_in_flight: false,
             action: None,
+            confirming: false,
+            restarting: false,
         }
     }
 
@@ -227,6 +233,40 @@ impl VersionCard {
         cx.notify();
     }
 
+    fn ask_to_restart(&mut self, cx: &mut Context<Self>) {
+        if self.indexing {
+            self.confirming = true;
+            cx.notify();
+        } else {
+            self.restart(cx);
+        }
+    }
+
+    fn cancel_restart(&mut self, cx: &mut Context<Self>) {
+        self.confirming = false;
+        cx.notify();
+    }
+
+    fn restart(&mut self, cx: &mut Context<Self>) {
+        self.confirming = false;
+        self.restarting = true;
+        self.busy = true;
+        self.error = None;
+        self.action = Some(run_backend(
+            cx,
+            |backend| backend.restart(),
+            |card: &mut VersionCard, result, cx| match result {
+                Ok(_) => cx.quit(),
+                Err(e) => {
+                    card.error = Some(describe(&e));
+                    card.restarting = false;
+                    card.busy = false;
+                }
+            },
+        ));
+        cx.notify();
+    }
+
     fn update(&mut self, cx: &mut Context<Self>) {
         self.busy = true;
         self.error = None;
@@ -257,7 +297,22 @@ impl Render for VersionCard {
         let show_update =
             !succeeded && !running && (v.update_available.is_some() || state == Shown::Failed);
         let show_check = !succeeded && !running;
-        let rich = status(&v, &t);
+        let rich = if self.restarting {
+            let words = if self.indexing {
+                "Restarting the app and the index…"
+            } else {
+                "Restarting the app…"
+            };
+            Rich::new().push(words, SANS, FontWeight::NORMAL, t.ink)
+        } else if self.confirming {
+            Rich::new().push(RESTART_WARNING, SANS, FontWeight::NORMAL, t.warn)
+        } else {
+            status(&v, &t)
+        };
+        let confirming = self.confirming;
+        let show_restart = !running && !self.restarting && !confirming;
+        let show_update = show_update && !self.restarting && !confirming;
+        let show_check = show_check && !self.restarting && !confirming;
         let label = rich.text();
         let links = rich.links();
         let faces = rich.faces(14., 20.);
@@ -322,14 +377,45 @@ impl Render for VersionCard {
                         .child(baseline::text(error)),
                 )
             })
-            .when(self.indexing && !running, |d| {
-                d.child(
-                    div()
-                        .flex_none()
-                        .size_xs()
-                        .text_color(t.muted)
-                        .child(baseline::text("an index is running")),
-                )
+            .when(
+                self.indexing && !running && !confirming && !self.restarting,
+                |d| {
+                    d.child(
+                        div()
+                            .flex_none()
+                            .size_xs()
+                            .text_color(t.muted)
+                            .child(baseline::text("an index is running")),
+                    )
+                },
+            )
+            .when(confirming, |d| {
+                d.child(card_button(
+                    "version-restart-confirm",
+                    "Stop the index and restart",
+                    false,
+                    busy,
+                    &t,
+                    cx.listener(|card, _, _, cx| card.restart(cx)),
+                ))
+                .child(card_button(
+                    "version-restart-cancel",
+                    "Cancel",
+                    false,
+                    busy,
+                    &t,
+                    cx.listener(|card, _, _, cx| card.cancel_restart(cx)),
+                ))
+            })
+            .when(show_restart, |d| {
+                d.child(card_button(
+                    "version-restart",
+                    "Restart",
+                    succeeded,
+                    busy,
+                    &t,
+                    cx.listener(|card, _, _, cx| card.ask_to_restart(cx)),
+                ))
             })
             .when(show_update, |d| {
                 d.child(card_button(

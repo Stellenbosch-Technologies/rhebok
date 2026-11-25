@@ -27,7 +27,7 @@ use super::ignore_editor::{short_path, suggestions_for};
 use super::index_panel::{progress_line, running_line, IndexState, IndexStatus};
 use super::install_card::embed_outcome;
 use super::retrieval_panel::{threshold_label, to_fixed_2};
-use crate::backend::{self, FixtureBackend};
+use crate::backend::{self, Answer, AppRestarted, FixtureBackend};
 use crate::shell::{Shell, TabId};
 use crate::theme;
 use crate::version_gate::Gate;
@@ -82,6 +82,7 @@ fn a_running_index_rounds_its_percent_half_up_like_to_fixed() {
 
 fn version() -> Version {
     Version {
+        pid: 1,
         installed: "0.2.0".to_string(),
         latest: None,
         url: None,
@@ -533,7 +534,7 @@ fn the_version_card_shows_each_of_its_states(cx: &mut TestAppContext) {
                 update: Some(status(true, Some(true), "done")),
                 ..version()
             },
-            "Updated to 0.3.0. Restart Claude Code, and this dashboard: this page is still served by the old binary.",
+            "Updated to 0.3.0. Restart this app so it runs the new version, and restart Claude Code.",
             false,
             false,
         ),
@@ -640,6 +641,79 @@ fn the_update_button_waits_for_a_running_index(cx: &mut TestAppContext) {
         fixture.update_start.calls(),
         0,
         "Update ran during an index"
+    );
+}
+
+fn restarted() -> Answer<AppRestarted> {
+    Ok(AppRestarted {
+        pid: 1,
+        report: String::new(),
+    })
+}
+
+#[gpui_kit::test]
+fn restart_runs_at_once_when_no_index_is_running(cx: &mut TestAppContext) {
+    let fixture = fixture();
+    fixture.version.set(Ok(version()));
+    fixture.restart.set(restarted());
+    let (window, _) = show_health(cx, fixture.clone());
+    click(cx, window, "version-restart");
+    wait(cx, Duration::from_millis(300));
+    assert_eq!(fixture.restart.calls(), 1);
+    assert_eq!(
+        label(cx, window, "version-status").as_deref(),
+        Some("Restarting the app…")
+    );
+    assert!(!exists(cx, window, "version-restart"));
+    assert!(!exists(cx, window, "version-check"));
+}
+
+#[gpui_kit::test]
+fn while_an_index_runs_restart_asks_first_and_cancel_sends_nothing(cx: &mut TestAppContext) {
+    let fixture = fixture();
+    fixture.progress.set(Ok(running(10.4)));
+    fixture.version.set(Ok(version()));
+    fixture.restart.set(restarted());
+    let (window, _) = show_health(cx, fixture.clone());
+    click(cx, window, "version-restart");
+    assert_eq!(fixture.restart.calls(), 0, "restart ran without asking");
+    assert_eq!(
+        label(cx, window, "version-status").as_deref(),
+        Some(super::version_card::RESTART_WARNING)
+    );
+    click(cx, window, "version-restart-cancel");
+    assert!(exists(cx, window, "version-restart"));
+    assert!(!exists(cx, window, "version-restart-confirm"));
+    assert_eq!(
+        label(cx, window, "version-status").as_deref(),
+        Some("up to date · checked never")
+    );
+    assert_eq!(fixture.restart.calls(), 0, "Cancel restarted");
+
+    click(cx, window, "version-restart");
+    click(cx, window, "version-restart-confirm");
+    wait(cx, Duration::from_millis(300));
+    assert_eq!(fixture.restart.calls(), 1);
+}
+
+#[gpui_kit::test]
+fn a_failed_restart_says_why_and_keeps_the_app(cx: &mut TestAppContext) {
+    let fixture = fixture();
+    fixture.version.set(Ok(version()));
+    fixture.restart.set(Err(DashboardError::Conflict(
+        "an update is running (fetching); restart once it finishes".to_string(),
+    )));
+    let (window, _) = show_health(cx, fixture.clone());
+    click(cx, window, "version-restart");
+    wait(cx, Duration::from_millis(300));
+    assert_eq!(
+        label(cx, window, "version-error").as_deref(),
+        Some("an update is running (fetching); restart once it finishes")
+    );
+    assert!(exists(cx, window, "version-restart"));
+    assert_eq!(
+        label(cx, window, "version-status").as_deref(),
+        Some("up to date · checked never")
     );
 }
 

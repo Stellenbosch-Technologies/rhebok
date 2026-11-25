@@ -147,6 +147,7 @@ rhebok index                # pick up new or changed files
 rhebok status               # index size, settings and any problems
 rhebok connect codex        # connect another agent (see: rhebok agents)
 rhebok update               # install the newest release
+rhebok restart              # restart the dashboard and any running index on the installed binary
 rhebok uninstall            # remove rhebok; keeps the config, index and memories
 ```
 

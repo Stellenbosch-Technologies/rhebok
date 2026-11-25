@@ -1817,10 +1817,14 @@ impl Drop for StagedPidfile {
 impl IndexLock {
     /// Is another process holding the writer lock right now?
     pub fn is_held(db: &std::path::Path) -> bool {
+        IndexLock::holder(db).is_some()
+    }
+
+    pub fn holder(db: &std::path::Path) -> Option<u32> {
         std::fs::read_to_string(db.with_extension("lock"))
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok())
-            .is_some_and(pid_alive)
+            .filter(|pid| pid_alive(*pid))
     }
 }
 

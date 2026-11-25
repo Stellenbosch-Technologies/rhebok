@@ -57,6 +57,9 @@ pub fn serve(port: Option<u16>, open_browser: bool) -> Result<()> {
     let listener = TcpListener::bind(("127.0.0.1", port.unwrap_or(0)))?;
     let addr = listener.local_addr()?;
     println!("rhebok dashboard: http://{addr}");
+    if let Err(e) = crate::restart::announce_dashboard(&Config::db_path(), addr.port()) {
+        eprintln!("rhebok dashboard: rhebok restart will not find this dashboard: {e:#}");
+    }
     if open_browser {
         let opener = if cfg!(target_os = "macos") {
             "open"
