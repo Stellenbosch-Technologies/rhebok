@@ -518,6 +518,15 @@ pub enum OcrMode {
     Force,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OcrEngineChoice {
+    #[default]
+    Auto,
+    Vision,
+    Oar,
+}
+
 /// Whether a missing OCR model may be fetched over the network.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -535,15 +544,17 @@ pub enum ModelDownloads {
 
 /// Scanned-PDF recognition.
 ///
-/// OCR needs two native libraries that are NOT bundled and, on macOS, are not
+/// oar-ocr needs ONNX Runtime, which is NOT bundled and, on macOS, is not
 /// discoverable by default — `/opt/homebrew/lib` is not on the dyld search
-/// path, so both a PDFium and an ONNX Runtime path must be resolved before the
-/// first call. `pdfium_lib_path` and `ort_dylib_path` are the explicit escape
-/// hatch when probing the usual prefixes fails.
+/// path, so its path must be resolved before the first call.
+/// `ort_dylib_path` is the explicit escape hatch when probing the usual
+/// prefixes fails.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PdfConfig {
     #[serde(default)]
     pub ocr: OcrMode,
+    #[serde(default)]
+    pub ocr_engine: OcrEngineChoice,
     /// Recognition spans below this confidence are dropped.
     ///
     /// The crate defaults to 0.0, which keeps everything. That is the wrong
@@ -553,18 +564,8 @@ pub struct PdfConfig {
     /// chunks that are worth retrieving.
     #[serde(default = "default_ocr_min_confidence")]
     pub ocr_min_confidence: f32,
-    /// Rasterization resolution for pages routed to OCR.
-    ///
-    /// 150 is the crate default and it sits just under a cost cliff, which is
-    /// the real reason this is exposed. `detect_boxes` abandons its 960px
-    /// standard detection pass once a page's longest side passes 1920px and
-    /// runs the 2560px escalated detector instead. A4 crosses at 164 DPI and
-    /// US Letter at 174, so raising this is not a smooth trade.
-    ///
-    /// Lowering it buys less than it looks: detection resizes every page to a
-    /// 960px longest side before inference, and recognition runs one
-    /// fixed-height crop per text line, so neither scales with DPI between
-    /// roughly 96 and 164. Only rasterization does.
+    /// Rasterization resolution for pages routed to OCR. 150 is the crate
+    /// default.
     #[serde(default = "default_pdf_dpi")]
     pub dpi: f32,
     /// Directory holding a pre-downloaded model set, for offline installs.
@@ -573,8 +574,6 @@ pub struct PdfConfig {
     /// Whether a missing model may be downloaded. See `ModelDownloads`.
     #[serde(default)]
     pub model_downloads: ModelDownloads,
-    #[serde(default)]
-    pub pdfium_lib_path: Option<PathBuf>,
     #[serde(default)]
     pub ort_dylib_path: Option<PathBuf>,
 }
@@ -591,11 +590,11 @@ impl Default for PdfConfig {
     fn default() -> Self {
         PdfConfig {
             ocr: OcrMode::default(),
+            ocr_engine: OcrEngineChoice::default(),
             ocr_min_confidence: default_ocr_min_confidence(),
             dpi: default_pdf_dpi(),
             model_dir: None,
             model_downloads: ModelDownloads::default(),
-            pdfium_lib_path: None,
             ort_dylib_path: None,
         }
     }
@@ -1160,7 +1159,7 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{concurrency_for_cores, Config, OcrMode, Profile, Surface};
+    use super::{concurrency_for_cores, Config, OcrEngineChoice, OcrMode, Profile, Surface};
 
     /// Measured warm floor for any search at all: ~40ms fixed + ~24ms embed.
     const WARM_FLOOR_MS: u32 = 65;
@@ -1472,9 +1471,9 @@ mod tests {
         let empty: Config = toml::from_str("").unwrap();
         for c in [Config::default(), empty] {
             assert_eq!(c.pdf.ocr, OcrMode::Auto);
+            assert_eq!(c.pdf.ocr_engine, OcrEngineChoice::Auto);
             assert_eq!(c.pdf.ocr_min_confidence, 0.5);
             assert_eq!(c.pdf.model_dir, None);
-            assert_eq!(c.pdf.pdfium_lib_path, None);
             assert_eq!(c.pdf.ort_dylib_path, None);
         }
     }
@@ -1508,23 +1507,32 @@ mod tests {
     }
 
     #[test]
+    fn each_ocr_engine_name_reads_from_config() {
+        for (name, engine) in [
+            ("auto", OcrEngineChoice::Auto),
+            ("vision", OcrEngineChoice::Vision),
+            ("oar", OcrEngineChoice::Oar),
+        ] {
+            let c: Config = toml::from_str(&format!("[pdf]\nocr_engine = \"{name}\"\n")).unwrap();
+            assert_eq!(c.pdf.ocr_engine, engine, "{name}");
+            assert_eq!(c.pdf.ocr, OcrMode::Auto, "{name}");
+        }
+        assert!(toml::from_str::<Config>("[pdf]\nocr_engine = \"tesseract\"\n").is_err());
+    }
+
+    #[test]
     fn pdf_library_paths_round_trip_from_config() {
         let c: Config = toml::from_str(
             r#"
             [pdf]
             ocr = "force"
             ocr_min_confidence = 0.8
-            pdfium_lib_path = "/somewhere/libpdfium.dylib"
             ort_dylib_path = "/somewhere/libonnxruntime.dylib"
             "#,
         )
         .unwrap();
         assert_eq!(c.pdf.ocr, OcrMode::Force);
         assert_eq!(c.pdf.ocr_min_confidence, 0.8);
-        assert_eq!(
-            c.pdf.pdfium_lib_path.as_deref(),
-            Some(std::path::Path::new("/somewhere/libpdfium.dylib"))
-        );
         assert_eq!(
             c.pdf.ort_dylib_path.as_deref(),
             Some(std::path::Path::new("/somewhere/libonnxruntime.dylib"))

@@ -11,7 +11,7 @@
 # export-dynamic flag is repeated here.
 #
 # Compiled-in paths (Rust panic locations, including the standard library's,
-# C++ __FILE__ strings from lbug, usearch and cxx, and pdf-inspector's
+# C++ __FILE__ strings from lbug, usearch and cxx, and any crate's
 # CARGO_MANIFEST_DIR) would otherwise carry this machine's home directory. The build therefore runs through
 # neutral symlinks under /tmp/rhebok-build, and Rust paths are remapped too.
 set -eu

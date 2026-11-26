@@ -611,13 +611,14 @@ export function DocumentsSection({ ctx }: { ctx: Ctx }) {
     <Card title="PDF and OCR">
       <SelectField ctx={ctx} path="pdf.ocr" label="OCR" options={["auto", "off", "force"]}
         hint="auto recognises only pages that have no text layer." />
+      <SelectField ctx={ctx} path="pdf.ocr_engine" label="OCR engine" options={["auto", "vision", "oar"]}
+        hint="auto uses Apple Vision on macOS and oar-ocr elsewhere. oar-ocr needs ONNX Runtime." />
       <div className="grid grid-cols-2 gap-x-6 gap-y-4">
         <NumberField ctx={ctx} path="pdf.ocr_min_confidence" label="Min OCR confidence (0-1)" />
         <NumberField ctx={ctx} path="pdf.dpi" label="Render DPI" />
       </div>
       <SelectField ctx={ctx} path="pdf.model_downloads" label="OCR model downloads" options={["if-missing", "offline"]} />
       <TextField ctx={ctx} path="pdf.model_dir" label="OCR model folder" optional />
-      <TextField ctx={ctx} path="pdf.pdfium_lib_path" label="PDFium library" optional />
       <TextField ctx={ctx} path="pdf.ort_dylib_path" label="ONNX Runtime library" optional />
     </Card>
   );

@@ -153,7 +153,7 @@ jobs:
   msrv:
     # Cargo.toml declares rust-version = "1.95", and the OCR tree is what
     # sets it: oar-ocr and its two siblings declare 1.95, reached through
-    # pdf-inspector's `ocr` feature. Building on exactly that toolchain, not
+    # rhebok's own `ocr` feature. Building on exactly that toolchain, not
     # just `stable`, is what actually proves the declared MSRV is real.
     runs-on: ubuntu-24.04
     steps:

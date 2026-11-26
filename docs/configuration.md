@@ -514,13 +514,26 @@ agreement check is what tells you whether it really is the same model.
 
 ### Scanned PDFs
 
-PDFs with a text layer are read directly. Pages without one are recognized
-with OCR, which is optional. OCR needs two native libraries, PDFium and ONNX
-Runtime, that rhebok does not bundle; see [OCR libraries](#ocr-libraries)
-below. With `ocr = "auto"` (the default), rhebok uses OCR when both
-libraries are found and only on pages the detector flags — a text PDF costs
-nothing and never loads the recognition machinery. Without the libraries,
-text PDFs are indexed as usual and scanned pages are skipped.
+rhebok reads PDFs with [pdf_oxide](https://crates.io/crates/pdf_oxide), which
+turns each page's text layer into Markdown and decides, page by page, whether
+that text layer can be trusted. Pages that have none, or whose text layer is
+garbled, are recognized with OCR, which is optional. A page that has real text
+and also images with text in them keeps its text, and gains the OCR lines that
+its text does not already contain.
+
+rhebok has two OCR engines:
+
+- **Apple Vision**, the default on macOS. It is part of macOS, so it needs no
+  library, no model download and no setup.
+- **oar-ocr**, the default everywhere else. It runs the PP-OCRv6 models on
+  ONNX Runtime, which rhebok does not bundle; see
+  [OCR libraries](#ocr-libraries) below. It downloads the models the first time
+  it reads a scanned page.
+
+pdf_oxide also draws the page for the OCR engine, so no other library is
+needed. With `ocr = "auto"` (the default), rhebok uses OCR only on pages that
+need it — a text PDF costs nothing and never starts an engine. Without the
+engine, text PDFs are indexed as usual and scanned pages are skipped.
 
 Recognition does not hold up your index. `rhebok index` runs two passes: the
 first reads every PDF from its text layer alone and publishes, so search works
@@ -533,21 +546,32 @@ second pass at all.
 ```toml
 [pdf]
 ocr                = "auto"      # auto | off | force
+ocr_engine         = "auto"      # auto | vision | oar; auto is vision on macOS, oar elsewhere
 ocr_min_confidence = 0.5         # drop weaker recognition rather than index noise
-dpi                = 150         # rasterization resolution for pages routed to OCR
+dpi                = 150         # resolution at which pages are drawn for OCR
 model_downloads    = "if-missing"  # if-missing | offline
 ```
 
-`dpi` sits just under a cost cliff and that is why it is exposed. Detection
-abandons its 960px pass once a page's longest side passes 1920px and runs a
-2560px detector instead, which costs substantially more per page — an A4 page
-crosses at 164 DPI and US Letter at 174. Lowering it buys less than it looks,
-because only rasterization scales with DPI; `rhebok` warns once, on the run
-that actually recognizes something, if your setting crosses the threshold.
+Apple Vision was the more accurate engine on the scans it was measured on, and
+it is several times faster. It has one known weakness: when lines are set with
+no space between them, so that one line's descenders touch the next line's
+capitals, it can read the two lines as one and return nonsense. If a scan like
+that matters to you, set `ocr_engine = "oar"`.
 
-`model_downloads = "offline"` refuses to fetch a missing OCR model rather than
-reaching for the network. Use it with `model_dir` pointing at a model set you
-placed yourself:
+`ocr_engine = "vision"` on Linux is an error: rhebok says so once and skips
+scanned pages for the rest of the run.
+
+A scan that already carries an OCR text layer from the scanner is read from
+that layer when pdf_oxide judges it usable. `ocr = "force"` recognizes every
+page again instead, which helps when that layer is poor.
+
+oar-ocr downloads its models (about 31 MB) from oar-ocr's repository on
+ModelScope (`greatv/oar-ocr`) and checks each file's SHA-256 before using it.
+It keeps them in `ocr-models` beside the index, or in `$OAR_HOME` when that is
+set. `model_downloads = "offline"` refuses to fetch a missing
+model rather than reaching for the network. Apple Vision downloads nothing.
+Use it with `model_dir` pointing at a folder that holds
+`pp-ocrv6_small_det.onnx`, `pp-ocrv6_small_rec.onnx` and `ppocrv6_dict.txt`:
 
 ```toml
 [pdf]
@@ -567,48 +591,38 @@ fingerprints and reads everything again.
 
 #### OCR libraries
 
-Recognition needs two native libraries that `rhebok` does not bundle: PDFium
-and ONNX Runtime (1.17 or newer).
+Apple Vision, the macOS default, needs nothing. oar-ocr needs ONNX Runtime
+(1.17 or newer), which `rhebok` does not bundle. On macOS,
+`brew install onnxruntime`. On Linux, download a release archive from
+[microsoft/onnxruntime](https://github.com/microsoft/onnxruntime/releases)
+and copy `libonnxruntime.so*` from its `lib` folder into `/usr/local/lib`.
 
-- **ONNX Runtime.** On macOS, `brew install onnxruntime`. On Linux, download a
-  release archive from
-  [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime/releases)
-  and copy `libonnxruntime.so*` from its `lib` folder into `/usr/local/lib`.
-- **PDFium.** There is no common package. Prebuilt libraries for macOS and
-  Linux are published at
-  [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries/releases);
-  copy `libpdfium.dylib` (macOS) or `libpdfium.so` (Linux) from its `lib`
-  folder into one of the folders below.
+rhebok looks for it itself, because the system loader does not search these
+folders by default:
 
-rhebok looks for them itself, because the system loader does not search
-these folders by default:
+- macOS: `libonnxruntime.dylib` in `/opt/homebrew/lib`, `/usr/local/lib` and
+  `/usr/lib`.
+- Linux: `libonnxruntime.so` in `/usr/local/lib`, `/usr/lib`,
+  `/usr/lib/x86_64-linux-gnu`, `/usr/lib/aarch64-linux-gnu` and `/usr/lib64`.
+  If only a versioned file such as `libonnxruntime.so.1.20.1` is there, rhebok
+  uses the highest version it finds.
 
-- macOS: `libpdfium.dylib` and `libonnxruntime.dylib` in `/opt/homebrew/lib`,
-  `/usr/local/lib` and `/usr/lib`.
-- Linux: `libpdfium.so` and `libonnxruntime.so` in `/usr/local/lib`,
-  `/usr/lib`, `/usr/lib/x86_64-linux-gnu`, `/usr/lib/aarch64-linux-gnu` and
-  `/usr/lib64`. If only a versioned file such as `libonnxruntime.so.1.20.1`
-  is there, rhebok uses the highest version it finds.
-
-If yours live elsewhere, set `PDFIUM_LIB_PATH` and `ORT_DYLIB_PATH` (these
-win), or:
+If yours lives elsewhere, set `ORT_DYLIB_PATH` (it wins), or:
 
 ```toml
 [pdf]
-pdfium_lib_path = "/path/to/libpdfium.so"          # .dylib on macOS
-ort_dylib_path  = "/path/to/libonnxruntime.so"     # .dylib on macOS
+ort_dylib_path = "/path/to/libonnxruntime.so"     # .dylib on macOS
 ```
 
-`rhebok status` has an `ocr:` line. When the libraries are missing, it says
-OCR is optional and not installed, names the missing one, and says text PDFs
+`rhebok status` has an `ocr:` line that names the engine. With oar-ocr and no
+ONNX Runtime, it says OCR is optional and not installed, and that text PDFs
 are still indexed. It is information, not a failed check; set `ocr = "off"`
-to hide it. Once both are found, you can see OCR will run before a scan goes
-missing from search rather than after.
+to hide it.
 
-Without them, `rhebok` says so once and falls back to text-layer extraction for
-the rest of the run — scanned pages are skipped and reported, exactly as they
-were before OCR existed. The first recognized document also downloads a model,
-which takes around twenty seconds.
+Without the engine, `rhebok` says so once and falls back to text-layer
+extraction for the rest of the run — scanned pages are skipped and reported,
+exactly as they were before OCR existed. With oar-ocr, the first recognized
+document also downloads the models, which takes around twenty seconds.
 
 ### Calibrating the injection threshold
 

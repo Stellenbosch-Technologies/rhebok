@@ -1,16 +1,23 @@
 #[cfg(feature = "ocr")]
 use crate::config::OcrMode;
 use crate::config::PdfConfig;
+use crate::loaders::ocr::EngineKind;
 use crate::loaders::Loaded;
 use crate::model::{Document, SourceType};
 use anyhow::Result;
+use pdf_oxide::converters::ConversionOptions;
+use pdf_oxide::extractors::auto::PageKind;
+use pdf_oxide::PdfDocument;
 use std::path::Path;
 #[cfg(feature = "ocr")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PdfError {
-    #[error("`{path}` appears to be a scanned PDF with no reliable text layer; skipping (OCR not enabled)")]
+    #[error(
+        "`{path}` appears to be a scanned PDF with no reliable text layer; skipping ({})",
+        scanned_reason(*.ocr_attempted)
+    )]
     Scanned {
         path: String,
         /// Whether recognition was actually run against this file before it
@@ -29,11 +36,19 @@ pub enum PdfError {
     Empty { path: String },
 }
 
+fn scanned_reason(ocr_attempted: bool) -> &'static str {
+    if ocr_attempted {
+        "OCR ran and recovered no text"
+    } else {
+        "OCR has not run on it: it is off, waiting for the OCR pass, or was unavailable earlier in this run"
+    }
+}
+
 /// One page of final Markdown, whatever produced it.
 ///
 /// This exists so the assembly below never has to know whether a page came
 /// from the text layer or from recognition — and so it can be tested without
-/// PDFium, ONNX Runtime, or a filesystem.
+/// an OCR engine or a filesystem.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedPage {
     /// 1-indexed, as stored and displayed.
@@ -72,10 +87,8 @@ static OCR_DISABLED: AtomicBool = AtomicBool::new(false);
 /// uninitialized memory, and the `OrtGetApiBase` panic CLAUDE.md records is a
 /// symptom of that rather than a guarantee.
 ///
-/// The cost of serializing is close to nothing. PDFium puts every call behind
-/// one process-wide mutex of its own, `oar-ocr` runs its own worker pool
-/// inside a single `recognize`, and a single-page document takes that
-/// function's sequential branch and uses one worker however many exist.
+/// The cost of serializing is close to nothing: both engines recognize one
+/// page at a time.
 #[cfg(feature = "ocr")]
 static OCR_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -83,16 +96,11 @@ static OCR_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[cfg(feature = "ocr")]
 static ANNOUNCED: std::sync::Once = std::sync::Once::new();
 
-/// Warn about a costly DPI once per process, not once per document.
-#[cfg(feature = "ocr")]
-static DPI_WARNED: std::sync::Once = std::sync::Once::new();
-
 /// Where a native library usually lives when a package manager put it there.
 ///
-/// Probing is the NORMAL path on macOS, not a fallback: the crate's discovery
-/// chain checks the executable's own directory, a `target/pdfium/...` path,
-/// and a bare `dlopen`, and `/opt/homebrew/lib` is on none of those — a bare
-/// `dlopen` does not search it either. Without this, OCR would look enabled
+/// Probing is the NORMAL path on macOS, not a fallback: `ort` loads ONNX
+/// Runtime with a bare `dlopen`, and `/opt/homebrew/lib` is not on its search
+/// path. Without this, OCR would look enabled
 /// and never once run.
 fn probe(explicit: Option<&Path>, stem: &str) -> Option<std::path::PathBuf> {
     match explicit {
@@ -163,16 +171,17 @@ fn highest_versioned_soname(dir: &Path, unversioned: &str) -> Option<std::path::
         .map(|(_, path)| path)
 }
 
-/// The two libraries OCR needs, as (env var, library stem, configured override).
-fn libraries(cfg: &PdfConfig) -> [(&'static str, &'static str, Option<&Path>); 2] {
-    [
-        ("PDFIUM_LIB_PATH", "pdfium", cfg.pdfium_lib_path.as_deref()),
-        (
+/// The libraries OCR needs, as (env var, library stem, configured override).
+fn libraries(cfg: &PdfConfig) -> Vec<(&'static str, &'static str, Option<&Path>)> {
+    if EngineKind::for_choice(cfg.ocr_engine).needs_onnx_runtime() {
+        vec![(
             "ORT_DYLIB_PATH",
             "onnxruntime",
             cfg.ort_dylib_path.as_deref(),
-        ),
-    ]
+        )]
+    } else {
+        Vec::new()
+    }
 }
 
 /// Where a library will be loaded from, if anywhere. An environment variable
@@ -201,17 +210,18 @@ fn locate(var: &str, explicit: Option<&Path>, stem: &str) -> Option<std::path::P
 /// worker. The `Once` did not help: it serializes the WRITERS against each
 /// other and against nothing else in the process.
 ///
-/// Both paths stay environment variables because neither library offers
-/// anything else at this distance. `process_pdf_with_ocr` builds its own
-/// renderer with `PdfiumRenderer::load()` and never exposes it, so
-/// `PDFIUM_LIB_PATH` is the only steering rhebok has; `ort` has no path-taking
-/// API at all.
+/// `ORT_DYLIB_PATH` stays an environment variable because `ort` has no
+/// path-taking API at all, and `OAR_HOME`, where oar-ocr caches its models,
+/// because oar-ocr reads only that.
 ///
 /// A variable the user already set always wins, exactly as before.
 ///
 /// Library consumers that bypass `main` must call this themselves, while
 /// single-threaded, or OCR sees only what the environment already carries.
 pub fn resolve_ocr_libraries(cfg: &PdfConfig) {
+    if std::env::var_os("OAR_HOME").is_none() {
+        std::env::set_var("OAR_HOME", ocr_model_cache());
+    }
     for (var, stem, explicit) in libraries(cfg) {
         if std::env::var_os(var).is_some() {
             continue;
@@ -220,6 +230,10 @@ pub fn resolve_ocr_libraries(cfg: &PdfConfig) {
             std::env::set_var(var, found);
         }
     }
+}
+
+pub fn ocr_model_cache() -> std::path::PathBuf {
+    crate::config::Config::db_path().with_file_name("ocr-models")
 }
 
 /// Whether each OCR library can be found, for `rhebok status`.
@@ -234,90 +248,193 @@ pub fn ocr_library_paths(cfg: &PdfConfig) -> Vec<(&'static str, Option<std::path
         .collect()
 }
 
-pub fn describe_ocr(mode: &str, missing: &[&str]) -> String {
+pub fn describe_ocr(mode: &str, engine: EngineKind, missing: &[&str]) -> String {
+    describe_ocr_on(mode, engine, missing, std::env::consts::OS)
+}
+
+fn describe_ocr_on(mode: &str, engine: EngineKind, missing: &[&str], os: &str) -> String {
+    let label = engine.label();
+    if engine == EngineKind::Vision && os != "macos" {
+        return format!(
+            "{mode} with {label}, which is only available on macOS: text PDFs are indexed as \
+             usual, scanned pages are skipped; set ocr_engine = \"oar\" under [pdf] to read them"
+        );
+    }
+    if !engine.needs_onnx_runtime() {
+        return format!("{mode} with {label} (built into macOS)");
+    }
+    let engine = label;
     if missing.is_empty() {
-        return format!("{mode} (libraries found)");
+        return format!("{mode} with {engine} (libraries found)");
     }
     format!(
-        "{mode}, optional and not installed ({} not found): text PDFs are indexed as usual, \
-         scanned pages are skipped; install PDFium and ONNX Runtime to read them (see \"Scanned \
-         PDFs\" in docs/configuration.md), or set ocr = \"off\" under [pdf] to hide this line",
-        missing.join(" and ")
+        "{mode} with {engine}, optional and not installed ({} not found): text PDFs are indexed \
+         as usual, scanned pages are skipped; install {} to read them (see \"Scanned PDFs\" in \
+         docs/configuration.md), or set ocr = \"off\" under [pdf] to hide this line",
+        missing.join(" and "),
+        missing
+            .iter()
+            .map(|stem| library_name(stem))
+            .collect::<Vec<_>>()
+            .join(" and "),
     )
+}
+
+fn library_name(stem: &str) -> &str {
+    match stem {
+        "onnxruntime" => "ONNX Runtime",
+        other => other,
+    }
 }
 
 /// Turn OCR off for the rest of the run and say why, exactly once.
 #[cfg(feature = "ocr")]
-fn disable_ocr(path: &Path, err: &dyn std::fmt::Display) {
+fn disable_ocr(path: &Path, engine: EngineKind, err: &dyn std::fmt::Display) {
     OCR_DISABLED.store(true, Ordering::Relaxed);
     eprintln!(
         "rhebok: {}: OCR unavailable, falling back to text-layer extraction for the \
-         rest of this run: {err}\n\
-         rhebok: install PDFium and ONNX Runtime, or set PDFIUM_LIB_PATH and \
-         ORT_DYLIB_PATH (or `[pdf] pdfium_lib_path` / `ort_dylib_path` in config)",
-        path.display()
+         rest of this run: {err}\n{}",
+        path.display(),
+        library_hint(engine)
     );
 }
 
-/// The DPI at which an A4 page renders past pdf-inspector's escalation
-/// threshold.
-///
-/// `detect_boxes` skips its 960px standard detection pass when a page's
-/// longest side exceeds 1920px and runs the 2560px escalated detector instead.
-/// A4 is 842pt tall, so it crosses at 1920 / 842 * 72 = 164. US Letter is
-/// 792pt and crosses at 174.
 #[cfg(feature = "ocr")]
-const ESCALATION_DPI_A4: f32 = 164.0;
+fn library_hint(engine: EngineKind) -> &'static str {
+    if engine.needs_onnx_runtime() {
+        "rhebok: install ONNX Runtime, or set ORT_DYLIB_PATH (or `[pdf] ort_dylib_path` in \
+         config); with `model_downloads = \"offline\"`, place the model files in `model_dir`"
+    } else {
+        "rhebok: Apple Vision needs macOS; set `ocr_engine = \"oar\"` under [pdf] elsewhere"
+    }
+}
 
-/// The one-line warning for a DPI past the cliff, or `None`.
-///
-/// Judged from CONFIGURATION ALONE, and the text says so. Neither
-/// `extract_pages_markdown` nor `OcrPdfResult` reports a page's dimensions, so
-/// nothing here can know the real page sizes without a separate inspection
-/// pass. It therefore uses the EARLIER of the two thresholds, which makes it
-/// conservative: a corpus of only US Letter pages between 164 and 174 gets a
-/// warning it does not strictly need. That false positive is the deliberate
-/// trade — paying
-/// several times the per-page cost silently is the house failure mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Route {
+    Text,
+    Ocr,
+    TextWithOcr,
+}
+
+fn route_for(kind: Option<PageKind>, markdown: &str) -> Route {
+    match kind {
+        Some(PageKind::TextLayer | PageKind::Empty) => Route::Text,
+        Some(PageKind::Scanned) => Route::Ocr,
+        Some(PageKind::ImageText | PageKind::Mixed) => Route::TextWithOcr,
+        Some(_) | None if markdown.trim().is_empty() => Route::Ocr,
+        Some(_) | None => Route::Text,
+    }
+}
+
+struct SourcePage {
+    number: u32,
+    markdown: String,
+    route: Route,
+}
+
+fn open(path: &Path) -> Result<PdfDocument> {
+    PdfDocument::open(path)
+        .map_err(|e| anyhow::anyhow!("`{}` could not be read as a PDF: {e}", path.display()))
+}
+
+fn read_pages(doc: &PdfDocument) -> Result<Vec<SourcePage>> {
+    let options = ConversionOptions::default();
+    let count = doc.page_count()?;
+    Ok((0..count)
+        .map(|index| {
+            let markdown = doc.to_markdown(index, &options).unwrap_or_default();
+            let kind = doc.classify_page(index).ok().map(|c| c.kind);
+            SourcePage {
+                number: u32::try_from(index + 1).unwrap_or(u32::MAX),
+                route: route_for(kind, &markdown),
+                markdown,
+            }
+        })
+        .collect())
+}
+
+fn text_layer(pages: Vec<SourcePage>) -> Extraction {
+    let mut out = Extraction::default();
+    for page in pages {
+        if page.route == Route::Ocr || page.markdown.trim().is_empty() {
+            out.dropped.push(page.number);
+        } else {
+            out.pages.push(LoadedPage {
+                number: page.number,
+                markdown: page.markdown,
+                ocr: false,
+            });
+        }
+    }
+    out
+}
+
 #[cfg(feature = "ocr")]
-fn dpi_warning(dpi: f32) -> Option<String> {
-    (dpi > ESCALATION_DPI_A4).then(|| {
-        format!(
-            "rhebok: [pdf] dpi = {dpi} renders an A4 page past 1920px, where OCR \
-             switches from the 960px detector to the 2560px one and costs \
-             substantially more per page. Judged from the configured DPI alone, \
-             because page sizes are not visible here — a US Letter page does not \
-             cross until 174."
-        )
+fn render(
+    doc: &PdfDocument,
+    page: &SourcePage,
+    dpi: f32,
+) -> Option<crate::loaders::ocr::PageImage> {
+    use pdf_oxide::rendering::{render_page, RenderOptions};
+    let index = usize::try_from(page.number).ok()?.checked_sub(1)?;
+    let dpi = dpi.round().clamp(1.0, 1200.0) as u32;
+    let image = render_page(doc, index, &RenderOptions::with_dpi(dpi).as_raw()).ok()?;
+    let expected = usize::try_from(image.width)
+        .ok()?
+        .checked_mul(usize::try_from(image.height).ok()?)?
+        .checked_mul(4)?;
+    (image.data.len() == expected).then_some(crate::loaders::ocr::PageImage {
+        width: image.width,
+        height: image.height,
+        rgba: image.data,
     })
 }
 
-/// Build the crate's options from `[pdf]`.
-///
-/// Separate and pure so the wiring is testable without PDFium, ONNX Runtime,
-/// or a scanned fixture on disk.
 #[cfg(feature = "ocr")]
-fn ocr_pdf_options(
-    cfg: &PdfConfig,
-    mode: pdf_inspector::vision::OcrMode,
-) -> pdf_inspector::vision::OcrPdfOptions {
-    let mut ocr = pdf_inspector::vision::OcrOptions::new()
-        .mode(mode)
-        .minimum_confidence(cfg.ocr_min_confidence);
-    if let Some(dir) = &cfg.model_dir {
-        ocr = ocr.model_directory(dir.clone());
+fn recognized(
+    doc: &PdfDocument,
+    pages: Vec<SourcePage>,
+    force: bool,
+    engine: &crate::loaders::ocr::Engine,
+    dpi: f32,
+) -> std::result::Result<Extraction, crate::loaders::ocr::EngineError> {
+    let mut out = Extraction::default();
+    for page in pages {
+        let route = if force { Route::Ocr } else { page.route };
+        let read = match route {
+            Route::Text => None,
+            Route::Ocr | Route::TextWithOcr => match render(doc, &page, dpi) {
+                Some(image) => Some(crate::loaders::ocr::page_text(
+                    &engine.recognize(&image)?,
+                    image.width as f32,
+                )),
+                None => {
+                    eprintln!("rhebok: page {} could not be rendered for OCR", page.number);
+                    None
+                }
+            },
+        };
+        let (markdown, ocr) = match (route, read) {
+            (Route::Ocr, Some(text)) if !text.trim().is_empty() => (text, true),
+            (Route::TextWithOcr, Some(text)) => {
+                match crate::loaders::ocr::with_unseen_lines(&page.markdown, &text) {
+                    Some(merged) => (merged, true),
+                    None => (page.markdown, false),
+                }
+            }
+            _ => (page.markdown, false),
+        };
+        if markdown.trim().is_empty() {
+            out.dropped.push(page.number);
+        } else {
+            out.pages.push(LoadedPage {
+                number: page.number,
+                markdown,
+                ocr,
+            });
+        }
     }
-    ocr = ocr.model_downloads(match cfg.model_downloads {
-        crate::config::ModelDownloads::IfMissing => {
-            pdf_inspector::vision::ModelDownloadPolicy::IfMissing
-        }
-        crate::config::ModelDownloads::Offline => {
-            pdf_inspector::vision::ModelDownloadPolicy::Offline
-        }
-    });
-    pdf_inspector::vision::OcrPdfOptions::new()
-        .render(pdf_inspector::vision::RenderOptions::new().dpi(cfg.dpi))
-        .ocr(ocr)
+    Ok(out)
 }
 
 pub struct PdfLoader;
@@ -406,23 +523,7 @@ impl PdfLoader {
 
     /// The text layer alone. Exactly the behaviour that shipped before OCR.
     fn extract_native(path: &Path) -> Result<Extraction> {
-        // `None` = every page, in document order.
-        let extracted = pdf_inspector::extract_pages_markdown(path, None)?;
-        let mut out = Extraction::default();
-        for page in &extracted.pages {
-            // `PageMarkdown.page` is 0-indexed; everything downstream is 1-indexed.
-            let number = page.page + 1;
-            if page.needs_ocr || page.markdown.trim().is_empty() {
-                out.dropped.push(number);
-            } else {
-                out.pages.push(LoadedPage {
-                    number,
-                    markdown: page.markdown.clone(),
-                    ocr: false,
-                });
-            }
-        }
-        Ok(out)
+        Ok(text_layer(read_pages(&open(path)?)?))
     }
 
     /// Recognition, or `None` when OCR is off, latched off, or just failed —
@@ -451,36 +552,39 @@ impl PdfLoader {
             // in this process already found the libraries unusable.
             None => return (None, false),
         };
-        let options = ocr_pdf_options(cfg, mode);
+        let force = mode == OcrMode::Force;
+        let engine = EngineKind::for_choice(cfg.ocr_engine);
 
-        match pdf_inspector::vision::process_pdf_with_ocr(path, options) {
-            Ok(result) => {
-                if !result.pages_routed_to_ocr.is_empty() {
-                    // The first recognition on a cold cache spends ~20 seconds
-                    // fetching a model with nothing on stderr. Silence there is
-                    // indistinguishable from a hang.
-                    ANNOUNCED.call_once(|| {
-                        eprintln!(
-                            "rhebok: recognizing scanned page(s); the first run may \
-                             download an OCR model"
-                        );
-                    });
-
-                    // Warned here, gated on `pages_routed_to_ocr` being
-                    // non-empty, rather than at config load or before this
-                    // call: `cfg.ocr` defaults to `Auto`, so this function
-                    // runs for every PDF, and OCR being enabled says nothing
-                    // about whether a page was actually rasterized. Only
-                    // this condition means recognition genuinely happened,
-                    // which is the only time the DPI cliff can be reached.
-                    if let Some(warning) = dpi_warning(cfg.dpi) {
-                        DPI_WARNED.call_once(|| eprintln!("{warning}"));
-                    }
-                }
-                (Some(fused_to_extraction(&result)), true)
-            }
+        let read = open(path).and_then(|doc| read_pages(&doc).map(|pages| (doc, pages)));
+        let (doc, pages) = match read {
+            Ok(read) => read,
             Err(e) => {
-                disable_ocr(path, &e);
+                eprintln!(
+                    "rhebok: {}: OCR could not read this file: {e}",
+                    path.display()
+                );
+                return (None, true);
+            }
+        };
+        if !force && pages.iter().all(|page| page.route == Route::Text) {
+            return (Some(text_layer(pages)), true);
+        }
+
+        // The first recognition on a cold cache spends ~20 seconds fetching a
+        // model with nothing on stderr. Silence there is indistinguishable
+        // from a hang.
+        ANNOUNCED.call_once(|| eprintln!("{}", recognizing_notice(engine)));
+        let settings = crate::loaders::ocr::EngineSettings {
+            model_dir: cfg.model_dir.clone(),
+            downloads: cfg.model_downloads,
+            minimum_confidence: cfg.ocr_min_confidence,
+        };
+        let outcome = crate::loaders::ocr::engine_for(engine, &settings)
+            .and_then(|ocr| recognized(&doc, pages, force, &ocr, cfg.dpi));
+        match outcome {
+            Ok(extraction) => (Some(extraction), true),
+            Err(e) => {
+                disable_ocr(path, engine, &e);
                 // Attempted, and failed. THIS document really was looked at,
                 // so the anti-retry stamp is honest for it; the ones that
                 // follow it in this process are the ones that are not.
@@ -495,6 +599,19 @@ impl PdfLoader {
     }
 }
 
+#[cfg(feature = "ocr")]
+fn recognizing_notice(engine: EngineKind) -> String {
+    let download = if engine.needs_onnx_runtime() {
+        "; the first run may download an OCR model"
+    } else {
+        ""
+    };
+    format!(
+        "rhebok: recognizing scanned page(s) with {}{download}",
+        engine.label()
+    )
+}
+
 /// Whether to recognize at all, and in which mode.
 ///
 /// Pure and separately testable ON PURPOSE. When this lived inline, a test of
@@ -503,39 +620,11 @@ impl PdfLoader {
 /// distinction matters because a second attempt after a failed ONNX Runtime
 /// load does not return an error, it panics and takes the index run with it.
 #[cfg(feature = "ocr")]
-fn ocr_mode_for(cfg: &PdfConfig, latched_off: bool) -> Option<pdf_inspector::vision::OcrMode> {
-    if latched_off {
+fn ocr_mode_for(cfg: &PdfConfig, latched_off: bool) -> Option<OcrMode> {
+    if latched_off || cfg.ocr == OcrMode::Off {
         return None;
     }
-    match cfg.ocr {
-        OcrMode::Off => None,
-        OcrMode::Auto => Some(pdf_inspector::vision::OcrMode::Auto),
-        OcrMode::Force => Some(pdf_inspector::vision::OcrMode::Force),
-    }
-}
-
-/// Map a completed OCR run onto the loader's own page type.
-#[cfg(feature = "ocr")]
-fn fused_to_extraction(result: &pdf_inspector::vision::OcrPdfResult) -> Extraction {
-    use pdf_inspector::vision::PageContentSource;
-    let mut out = Extraction::default();
-    for page in &result.pages {
-        // `page_number` is ALREADY 1-indexed. Adding one here — as the
-        // native path must, because its input is 0-indexed — would shift
-        // every stored page citation by one, silently, since nothing
-        // downstream validates a page number against the document.
-        let number = page.page_number;
-        if page.markdown.trim().is_empty() {
-            out.dropped.push(number);
-            continue;
-        }
-        out.pages.push(LoadedPage {
-            number,
-            markdown: page.markdown.clone(),
-            ocr: !matches!(page.provenance.source, PageContentSource::Native),
-        });
-    }
-    out
+    Some(cfg.ocr)
 }
 
 /// Concatenate pages and record where each one starts.
@@ -567,8 +656,6 @@ impl super::Loader for PdfLoader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "ocr")]
-    use pdf_inspector::vision::OcrMode as PdfiumOcrMode;
 
     fn page(number: u32, markdown: &str, ocr: bool) -> LoadedPage {
         LoadedPage {
@@ -576,6 +663,100 @@ mod tests {
             markdown: markdown.into(),
             ocr,
         }
+    }
+
+    #[cfg(feature = "ocr")]
+    static LATCH_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[cfg(feature = "ocr")]
+    fn latched_after(load: impl FnOnce()) -> bool {
+        let _serial = LATCH_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        load();
+        let _gate = OCR_GATE.lock().unwrap_or_else(|e| e.into_inner());
+        let latched = OCR_DISABLED.load(Ordering::Relaxed);
+        OCR_DISABLED.store(false, Ordering::Relaxed);
+        latched
+    }
+
+    #[cfg(feature = "ocr")]
+    #[test]
+    fn a_document_that_cannot_be_read_does_not_turn_ocr_off_for_the_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let not_a_pdf = dir.path().join("notes.pdf");
+        std::fs::write(&not_a_pdf, "plain text with a .pdf name").unwrap();
+        let latched = latched_after(|| {
+            let loaded = PdfLoader::load_file_reporting(&not_a_pdf, &PdfConfig::default());
+            assert!(loaded.is_err());
+        });
+        assert!(!latched, "one unreadable file must not turn OCR off");
+    }
+
+    #[cfg(feature = "ocr")]
+    #[test]
+    fn an_engine_that_cannot_start_turns_ocr_off_for_the_run() {
+        let broken = PdfConfig {
+            ocr_min_confidence: 2.0,
+            ..PdfConfig::default()
+        };
+        let latched = latched_after(|| {
+            let _ = PdfLoader::load_file_reporting(
+                Path::new("tests/fixtures/corpus/scanned-plain.pdf"),
+                &broken,
+            );
+        });
+        assert!(latched);
+    }
+
+    #[test]
+    fn each_page_kind_goes_to_the_reader_that_suits_it() {
+        assert_eq!(route_for(Some(PageKind::TextLayer), "text"), Route::Text);
+        assert_eq!(route_for(Some(PageKind::Empty), ""), Route::Text);
+        assert_eq!(route_for(Some(PageKind::Scanned), "garbled"), Route::Ocr);
+        assert_eq!(
+            route_for(Some(PageKind::ImageText), "text"),
+            Route::TextWithOcr
+        );
+        assert_eq!(route_for(Some(PageKind::Mixed), "text"), Route::TextWithOcr);
+        assert_eq!(route_for(None, "  "), Route::Ocr);
+        assert_eq!(route_for(None, "text"), Route::Text);
+    }
+
+    #[test]
+    fn the_text_layer_drops_pages_that_need_ocr_and_keeps_true_numbers() {
+        let source = |number, markdown: &str, route| SourcePage {
+            number,
+            markdown: markdown.into(),
+            route,
+        };
+        let extraction = text_layer(vec![
+            source(1, "first", Route::Text),
+            source(2, "garbled", Route::Ocr),
+            source(3, "figure caption", Route::TextWithOcr),
+            source(4, " ", Route::Text),
+        ]);
+        assert_eq!(
+            extraction.pages,
+            vec![page(1, "first", false), page(3, "figure caption", false)]
+        );
+        assert_eq!(extraction.dropped, vec![2, 4]);
+    }
+
+    #[test]
+    fn a_scanned_skip_says_whether_ocr_ran() {
+        let tried = PdfError::Scanned {
+            path: "a.pdf".into(),
+            ocr_attempted: true,
+        }
+        .to_string();
+        let skipped = PdfError::Scanned {
+            path: "a.pdf".into(),
+            ocr_attempted: false,
+        }
+        .to_string();
+
+        assert!(!tried.contains("not enabled"), "{tried}");
+        assert!(tried.contains("OCR ran"), "{tried}");
+        assert!(skipped.contains("OCR has not run"), "{skipped}");
     }
 
     #[test]
@@ -611,7 +792,7 @@ mod tests {
         let auto = PdfConfig::default();
         assert_eq!(auto.ocr, OcrMode::Auto, "default must be the OCR-on mode");
 
-        assert_eq!(ocr_mode_for(&auto, false), Some(PdfiumOcrMode::Auto));
+        assert_eq!(ocr_mode_for(&auto, false), Some(OcrMode::Auto));
         assert_eq!(
             ocr_mode_for(&auto, true),
             None,
@@ -624,8 +805,13 @@ mod tests {
     fn disable_ocr_sets_the_latch() {
         // Pairs with the test above: that one proves a latched run skips OCR,
         // this one proves a failure is what latches it.
+        let _serial = LATCH_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         OCR_DISABLED.store(false, Ordering::Relaxed);
-        disable_ocr(Path::new("x.pdf"), &"simulated load failure");
+        disable_ocr(
+            Path::new("x.pdf"),
+            EngineKind::Oar,
+            &"simulated load failure",
+        );
         assert!(OCR_DISABLED.load(Ordering::Relaxed));
         OCR_DISABLED.store(false, Ordering::Relaxed);
     }
@@ -647,7 +833,7 @@ mod tests {
             ocr: OcrMode::Force,
             ..PdfConfig::default()
         };
-        assert_eq!(ocr_mode_for(&force, false), Some(PdfiumOcrMode::Force));
+        assert_eq!(ocr_mode_for(&force, false), Some(OcrMode::Force));
     }
 
     #[test]
@@ -656,16 +842,19 @@ mod tests {
         // variable said without checking it, so a typo'd path made
         // `rhebok status` report the library as found. Status output that
         // confidently lies is worse than no status output.
-        let key = "PDFIUM_LIB_PATH";
+        let key = "ORT_DYLIB_PATH";
         let prior = std::env::var_os(key);
-        std::env::set_var(key, "/definitely/not/here/libpdfium.dylib");
+        std::env::set_var(key, "/definitely/not/here/libonnxruntime.dylib");
 
-        let reported = ocr_library_paths(&PdfConfig::default());
-        let pdfium = reported
+        let reported = ocr_library_paths(&PdfConfig {
+            ocr_engine: crate::config::OcrEngineChoice::Oar,
+            ..PdfConfig::default()
+        });
+        let runtime = reported
             .iter()
-            .find(|(name, _)| *name == "pdfium")
-            .expect("pdfium must be reported on");
-        let seen = pdfium.1.clone();
+            .find(|(name, _)| *name == "onnxruntime")
+            .expect("onnxruntime must be reported on");
+        let seen = runtime.1.clone();
 
         match prior {
             Some(v) => std::env::set_var(key, v),
@@ -717,130 +906,66 @@ mod tests {
     #[test]
     fn an_unversioned_library_wins_over_its_versioned_sonames() {
         let dir = tempfile::tempdir().unwrap();
-        for name in ["libpdfium.so", "libpdfium.so.7"] {
+        for name in ["libonnxruntime.so", "libonnxruntime.so.7"] {
             std::fs::write(dir.path().join(name), b"x").unwrap();
         }
         let dirs = vec![dir.path().to_path_buf()];
         assert_eq!(
-            find_library("linux", &dirs, "pdfium"),
-            Some(dir.path().join("libpdfium.so"))
+            find_library("linux", &dirs, "onnxruntime"),
+            Some(dir.path().join("libonnxruntime.so"))
         );
-        std::fs::write(dir.path().join("libpdfium.dylib"), b"x").unwrap();
+        std::fs::write(dir.path().join("libonnxruntime.dylib"), b"x").unwrap();
         assert_eq!(
-            find_library("macos", &dirs, "pdfium"),
-            Some(dir.path().join("libpdfium.dylib"))
+            find_library("macos", &dirs, "onnxruntime"),
+            Some(dir.path().join("libonnxruntime.dylib"))
         );
     }
 
     #[test]
     fn missing_ocr_libraries_read_as_optional_not_as_a_failure() {
-        let line = describe_ocr("auto", &["pdfium", "onnxruntime"]);
+        let line = describe_ocr_on("auto", EngineKind::Oar, &["onnxruntime"], "linux");
         assert!(line.contains("optional"), "{line}");
-        assert!(line.contains("pdfium and onnxruntime"), "{line}");
+        assert!(line.contains("onnxruntime not found"), "{line}");
+        assert!(line.contains("install ONNX Runtime"), "{line}");
         assert!(line.contains("scanned pages are skipped"), "{line}");
         assert!(
             line.contains("\"Scanned PDFs\" in docs/configuration.md"),
             "{line}"
         );
-        assert!(!line.contains("NOT available"), "{line}");
-        assert_eq!(describe_ocr("auto", &[]), "auto (libraries found)");
+        assert_eq!(
+            describe_ocr_on("auto", EngineKind::Oar, &[], "linux"),
+            "auto with oar-ocr (libraries found)"
+        );
+    }
+
+    #[test]
+    fn vision_needs_no_libraries_on_macos_and_is_unavailable_elsewhere() {
+        assert!(ocr_library_paths(&PdfConfig {
+            ocr_engine: crate::config::OcrEngineChoice::Vision,
+            ..PdfConfig::default()
+        })
+        .is_empty());
+        assert_eq!(
+            describe_ocr_on("auto", EngineKind::Vision, &[], "macos"),
+            "auto with Apple Vision (built into macOS)"
+        );
+        let linux = describe_ocr_on("force", EngineKind::Vision, &[], "linux");
+        assert!(linux.contains("only available on macOS"), "{linux}");
+        assert!(linux.contains("ocr_engine = \"oar\""), "{linux}");
     }
 
     #[test]
     fn probe_prefers_an_explicit_path_over_the_usual_prefixes() {
         let dir = tempfile::tempdir().unwrap();
-        let explicit = dir.path().join("libpdfium.dylib");
+        let explicit = dir.path().join("libonnxruntime.dylib");
         std::fs::write(&explicit, b"x").unwrap();
 
-        assert_eq!(probe(Some(&explicit), "pdfium"), Some(explicit.clone()));
+        assert_eq!(
+            probe(Some(&explicit), "onnxruntime"),
+            Some(explicit.clone())
+        );
         // A name that exists in no prefix must not be invented.
         assert_eq!(probe(None, "not-a-real-library"), None);
-    }
-
-    #[test]
-    #[cfg(feature = "ocr")]
-    fn configured_dpi_reaches_the_render_options() {
-        // The whole point of the key: `OcrPdfOptions::new().ocr(..)` leaves
-        // `render` at the crate default and nothing in `[pdf]` could change it.
-        let cfg = PdfConfig {
-            dpi: 120.0,
-            ..PdfConfig::default()
-        };
-        let options = ocr_pdf_options(&cfg, pdf_inspector::vision::OcrMode::Auto);
-        assert_eq!(options.render.dpi, 120.0);
-        assert_eq!(
-            ocr_pdf_options(&PdfConfig::default(), pdf_inspector::vision::OcrMode::Auto)
-                .render
-                .dpi,
-            150.0,
-            "the shipped default must stay at the crate's 150"
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "ocr")]
-    fn the_dpi_warning_fires_only_above_the_a4_cliff() {
-        // `detect_boxes` abandons the 960px standard pass above 1920px and runs
-        // the 2560px escalated detector instead. A4 is 842pt tall and crosses at
-        // 1920/842*72 = 164 DPI; US Letter is 792pt and crosses at 174.
-        assert!(dpi_warning(150.0).is_none(), "the default must be silent");
-        assert!(
-            dpi_warning(164.0).is_none(),
-            "the boundary itself is not past it"
-        );
-        assert!(
-            dpi_warning(165.0).is_some(),
-            "just past A4's cliff must warn"
-        );
-        let warning = dpi_warning(200.0).expect("200 DPI must warn");
-        assert!(
-            warning.contains("174"),
-            "the warning must disclose that Letter crosses later, since the \
-             check cannot see real page sizes: {warning}"
-        );
-
-        // RECOMPUTED, because both numbers above are hand-typed — 164 in the
-        // constant and 174 in the format string — so every assertion so far
-        // catches a documentation regression and none of them catches an
-        // arithmetic one. A page of `height_pt` renders to
-        // `height_pt / 72 * dpi` pixels, so it crosses the escalation cliff at
-        // `ESCALATION_PX / (height_pt / 72)` DPI. Floored, because the DPI
-        // BELOW the crossing is the last one that is still safe.
-        const ESCALATION_PX: f32 = 1920.0;
-        let crossing = |height_pt: f32| (ESCALATION_PX / (height_pt / 72.0)).floor();
-        assert_eq!(
-            crossing(842.0),
-            ESCALATION_DPI_A4,
-            "the A4 constant must be the arithmetic, not a number that once was"
-        );
-        assert_eq!(
-            crossing(792.0),
-            174.0,
-            "and the US Letter figure the message quotes must be too"
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "ocr")]
-    fn offline_reaches_the_engine_as_offline() {
-        use pdf_inspector::vision::ModelDownloadPolicy;
-        assert_eq!(
-            ocr_pdf_options(&PdfConfig::default(), pdf_inspector::vision::OcrMode::Auto)
-                .ocr
-                .model_downloads,
-            ModelDownloadPolicy::IfMissing,
-            "the default must keep today's behaviour"
-        );
-        let offline = PdfConfig {
-            model_downloads: crate::config::ModelDownloads::Offline,
-            ..PdfConfig::default()
-        };
-        assert_eq!(
-            ocr_pdf_options(&offline, pdf_inspector::vision::OcrMode::Auto)
-                .ocr
-                .model_downloads,
-            ModelDownloadPolicy::Offline,
-        );
     }
 
     #[test]
@@ -851,8 +976,8 @@ mod tests {
         // `ocr_mode_for(...)?` early return — so a call into it must block for
         // as long as this thread holds the gate, regardless of whether OCR
         // ends up running, is latched off, or fails. `paper.pdf` is an
-        // ordinary text PDF with no scanned pages, so this needs neither
-        // PDFium nor ONNX Runtime and stays cheap; `OcrMode::Auto` just means
+        // ordinary text PDF with no scanned pages, so this needs no OCR
+        // engine and stays cheap; `OcrMode::Auto` just means
         // the production code path is actually entered instead of
         // short-circuited by config.
         //

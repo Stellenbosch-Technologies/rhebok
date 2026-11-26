@@ -1,11 +1,11 @@
-use rhebok::config::{OcrMode, PdfConfig};
+use rhebok::config::{OcrEngineChoice, OcrMode, PdfConfig};
 use rhebok::loaders::pdf::{PdfError, PdfLoader};
 
 /// Text-layer extraction only.
 ///
 /// Every test below that asserts pre-OCR behaviour passes this explicitly. The
 /// alternative — relying on the default — would make the result depend on
-/// whether PDFium and ONNX Runtime happen to be installed on the machine
+/// whether an OCR engine happens to be available on the machine
 /// running the suite, which is precisely the kind of invisible dependency this
 /// project keeps getting bitten by.
 fn no_ocr() -> PdfConfig {
@@ -27,9 +27,24 @@ fn load(name: &str, cfg: &PdfConfig) -> anyhow::Result<rhebok::model::Document> 
 /// of any consumer that does not go through the binary. Before the env write
 /// moved to `main`, `extract_with_ocr` did it lazily on this path.
 fn ocr_ready() -> PdfConfig {
-    let cfg = PdfConfig::default();
+    ocr_ready_with(OcrEngineChoice::Auto)
+}
+
+fn ocr_ready_with(ocr_engine: OcrEngineChoice) -> PdfConfig {
+    let cfg = PdfConfig {
+        ocr_engine,
+        ..PdfConfig::default()
+    };
     rhebok::loaders::pdf::resolve_ocr_libraries(&cfg);
     cfg
+}
+
+fn engines_on_this_machine() -> Vec<OcrEngineChoice> {
+    if cfg!(target_os = "macos") {
+        vec![OcrEngineChoice::Vision, OcrEngineChoice::Oar]
+    } else {
+        vec![OcrEngineChoice::Oar]
+    }
 }
 
 #[test]
@@ -50,7 +65,7 @@ fn page_offsets_point_at_the_start_of_each_page_in_a_multi_page_document() {
     let pages = doc.meta["pages"].as_array().unwrap();
     assert_eq!(pages.len(), 2, "fixture must span two pages");
 
-    // Pages are stored 1-indexed for display, converted from pdf-inspector's 0-indexed value.
+    // Pages are stored 1-indexed for display, converted from pdf_oxide's 0-indexed page index.
     assert_eq!(pages[0]["page"].as_i64(), Some(1));
     assert_eq!(pages[1]["page"].as_i64(), Some(2));
 
@@ -71,7 +86,7 @@ fn page_offsets_point_at_the_start_of_each_page_in_a_multi_page_document() {
 #[test]
 fn mixed_pdf_keeps_good_pages_with_true_original_page_numbers() {
     // Three pages: 1 and 3 have a real text layer, page 2 was rasterized to
-    // strip its text (pdf-inspector reports it via `needs_ocr`/empty markdown).
+    // strip its text (pdf_oxide classifies it as scanned).
     let doc = load("mixed.pdf", &no_ocr()).unwrap();
 
     // Not rejected outright: partial signal beats total rejection.
@@ -112,15 +127,37 @@ fn text_pages_are_never_marked_as_recognized() {
     }
 }
 
-// --- Recognition. Requires PDFium and ONNX Runtime; never runs in CI. ---
+// --- Recognition. Requires ONNX Runtime for oar-ocr; never runs in CI. ---
 //
 // Run deliberately:
 //   cargo test --test loaders_pdf -- --ignored
 
 #[test]
-#[ignore = "needs PDFium and ONNX Runtime installed"]
-fn ocr_recovers_text_from_a_scanned_pdf() {
-    let doc = load("scanned.pdf", &ocr_ready()).unwrap();
+#[ignore = "needs ONNX Runtime installed, and the OCR model download"]
+fn every_engine_recovers_text_from_a_scanned_page() {
+    for engine in engines_on_this_machine() {
+        let doc = load("scanned-plain.pdf", &ocr_ready_with(engine)).unwrap();
+        let text = doc.text.to_lowercase();
+        for phrase in [
+            "retrieval augmented generation",
+            "dense vectors",
+            "text layer",
+        ] {
+            assert!(
+                text.contains(phrase),
+                "{engine:?} missed {phrase:?}: {text:?}"
+            );
+        }
+        let pages = doc.meta["pages"].as_array().unwrap();
+        assert_eq!(pages.len(), 1, "{engine:?}");
+        assert_eq!(pages[0]["ocr"], true, "{engine:?}");
+    }
+}
+
+#[test]
+#[ignore = "needs ONNX Runtime installed, and the OCR model download"]
+fn oar_recovers_text_from_lines_set_without_leading() {
+    let doc = load("scanned.pdf", &ocr_ready_with(OcrEngineChoice::Oar)).unwrap();
 
     // The fixture's page carries this sentence. Recognizing it end to end is
     // the entire point of the feature.
@@ -138,7 +175,7 @@ fn ocr_recovers_text_from_a_scanned_pdf() {
 }
 
 #[test]
-#[ignore = "needs PDFium and ONNX Runtime installed"]
+#[ignore = "needs ONNX Runtime installed, and the OCR model download"]
 fn ocr_fills_the_gap_in_a_mixed_pdf_without_renumbering() {
     let doc = load("mixed.pdf", &ocr_ready()).unwrap();
     let pages = doc.meta["pages"].as_array().unwrap();
@@ -167,10 +204,33 @@ fn ocr_fills_the_gap_in_a_mixed_pdf_without_renumbering() {
 }
 
 #[test]
-#[ignore = "needs PDFium and ONNX Runtime installed"]
+#[ignore = "needs ONNX Runtime installed, and the OCR model download"]
+fn ocr_recognizes_every_page_of_a_multi_page_scan_in_order() {
+    for engine in engines_on_this_machine() {
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(load("scanned-six-pages.pdf", &ocr_ready_with(engine)));
+        });
+
+        let doc = finished
+            .recv_timeout(std::time::Duration::from_secs(180))
+            .unwrap_or_else(|_| panic!("{engine:?} never finished a six-page scan"))
+            .unwrap();
+        let pages = doc.meta["pages"].as_array().unwrap();
+        let numbers: Vec<i64> = pages.iter().map(|p| p["page"].as_i64().unwrap()).collect();
+        assert_eq!(numbers, [1, 2, 3, 4, 5, 6], "{engine:?}");
+        assert!(
+            pages.iter().all(|p| p["ocr"] == true),
+            "{engine:?}: {pages:?}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "needs ONNX Runtime installed, and the OCR model download"]
 fn ocr_enabled_mode_does_not_perturb_a_text_pdf() {
     // NOT an OCR-success test: a text PDF short-circuits recognition either
-    // way, so this passes whether or not PDFium and ONNX Runtime resolve.
+    // way, so this passes whether or not ONNX Runtime resolves.
     //
     // Enabling OCR must not perturb documents that never needed it. If this
     // ever fails, recognition has started running where it should not.
@@ -189,33 +249,36 @@ fn ocr_enabled_mode_does_not_perturb_a_text_pdf() {
 #[test]
 fn resolve_ocr_libraries_sets_only_what_is_unset() {
     let dir = tempfile::tempdir().unwrap();
-    let fake = dir.path().join("libpdfium.dylib");
+    let fake = dir.path().join("libonnxruntime.dylib");
     std::fs::write(&fake, b"x").unwrap();
 
-    let prior_pdfium = std::env::var_os("PDFIUM_LIB_PATH");
     let prior_ort = std::env::var_os("ORT_DYLIB_PATH");
+    let prior_home = std::env::var_os("OAR_HOME");
 
     // Unset: the explicit config path must win and be written.
-    std::env::remove_var("PDFIUM_LIB_PATH");
+    std::env::remove_var("ORT_DYLIB_PATH");
+    std::env::remove_var("OAR_HOME");
     let cfg = rhebok::config::PdfConfig {
-        pdfium_lib_path: Some(fake.clone()),
+        ocr_engine: OcrEngineChoice::Oar,
+        ort_dylib_path: Some(fake.clone()),
         ..rhebok::config::PdfConfig::default()
     };
     rhebok::loaders::pdf::resolve_ocr_libraries(&cfg);
-    let wrote = std::env::var_os("PDFIUM_LIB_PATH");
+    let wrote = std::env::var_os("ORT_DYLIB_PATH");
+    let models = std::env::var_os("OAR_HOME");
 
     // Already set: an existing value must never be overwritten.
-    std::env::set_var("PDFIUM_LIB_PATH", "/set/by/the/user.dylib");
+    std::env::set_var("ORT_DYLIB_PATH", "/set/by/the/user.dylib");
+    std::env::set_var("OAR_HOME", "/set/by/the/user/models");
     rhebok::loaders::pdf::resolve_ocr_libraries(&cfg);
-    let kept = std::env::var_os("PDFIUM_LIB_PATH");
+    let kept = std::env::var_os("ORT_DYLIB_PATH");
+    let kept_models = std::env::var_os("OAR_HOME");
 
-    match prior_pdfium {
-        Some(v) => std::env::set_var("PDFIUM_LIB_PATH", v),
-        None => std::env::remove_var("PDFIUM_LIB_PATH"),
-    }
-    match prior_ort {
-        Some(v) => std::env::set_var("ORT_DYLIB_PATH", v),
-        None => std::env::remove_var("ORT_DYLIB_PATH"),
+    for (key, prior) in [("ORT_DYLIB_PATH", prior_ort), ("OAR_HOME", prior_home)] {
+        match prior {
+            Some(v) => std::env::set_var(key, v),
+            None => std::env::remove_var(key),
+        }
     }
 
     assert_eq!(
@@ -224,9 +287,18 @@ fn resolve_ocr_libraries_sets_only_what_is_unset() {
         "an unset variable is resolved"
     );
     assert_eq!(
+        models.as_deref(),
+        Some(rhebok::loaders::pdf::ocr_model_cache().as_os_str()),
+        "the model cache defaults to rhebok's own data folder"
+    );
+    assert_eq!(
         kept.as_deref(),
         Some(std::ffi::OsStr::new("/set/by/the/user.dylib")),
         "a variable the user set must never be overwritten"
+    );
+    assert_eq!(
+        kept_models.as_deref(),
+        Some(std::ffi::OsStr::new("/set/by/the/user/models"))
     );
 }
 

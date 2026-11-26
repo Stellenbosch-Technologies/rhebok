@@ -795,7 +795,7 @@ fn nested_source_roots_yield_each_document_once() {
 /// sees it as unchanged and the pages are never read.
 ///
 /// WHAT THIS TEST CANNOT PIN, and it took a review to notice: on a machine
-/// without PDFium and ONNX Runtime, `ocr = auto` falls back to the text layer
+/// without a working OCR engine, `ocr = auto` falls back to the text layer
 /// on its own, so a Skip pass and a Run pass return identical results and every
 /// assertion below passes whether or not Skip forced recognition off. It is
 /// load-bearing only where the dylibs resolve.
@@ -929,8 +929,8 @@ fn a_pdf_awaiting_ocr_is_not_pruned_from_the_index() {
 /// Phase 2 must run only when phase 1 left something, and must never fail the
 /// run — the index is already published by the time it starts.
 ///
-/// This asserts the GUARD, not recognition itself: OCR needs PDFium and ONNX
-/// Runtime, which the suite must not require. A corpus with no scanned pages
+/// This asserts the GUARD, not recognition itself: OCR needs an engine (and
+/// for oar-ocr, ONNX Runtime), which the suite must not require. A corpus with no scanned pages
 /// must leave `ocr_pending` empty, which is what keeps the second pass — a
 /// second seed copy, a second stat walk and a second full pack build — off
 /// every ordinary run.
@@ -1142,7 +1142,7 @@ fn ocr_off_queues_no_backlog_for_a_fully_scanned_pdf() {
 }
 
 /// THE FINDING, and the one with the data-loss consequence. `OCR_DISABLED` is
-/// a PROCESS-WIDE latch: the first PDF that finds PDFium or ONNX Runtime
+/// a PROCESS-WIDE latch: the first PDF that finds the OCR engine
 /// unusable turns recognition off for the rest of the run, so every scanned
 /// PDF after it fails with the same `Err(PdfError::Scanned)` having never been
 /// looked at.
@@ -1154,28 +1154,32 @@ fn ocr_off_queues_no_backlog_for_a_fully_scanned_pdf() {
 /// next run restored it; the anti-retry stamp makes the deletion PERMANENT,
 /// recoverable only by `--reindex`.
 ///
-/// FORCING "never attempted" DETERMINISTICALLY, on any machine: load a file
-/// whose bytes are not a PDF with recognition ON. `process_pdf_with_ocr`
-/// fails on it — on a machine WITH the libraries because the bytes are
-/// garbage, on a machine without them because the dylib will not load — and
-/// either way `disable_ocr` latches. No environment variable is touched, so
-/// this races nothing else in the binary, and the latch only ever moves one
-/// way. The `!mixed.ocr_attempted` assertion below is the precondition check:
+/// FORCING "never attempted" DETERMINISTICALLY, on any machine: load a real
+/// PDF with recognition ON and `ocr_min_confidence` outside 0..=1.
+/// `process_pdf_with_ocr` refuses that setting before it renders anything, so
+/// it fails the same way with or without the libraries, and the failure is an
+/// engine error, not a problem with the file, so `disable_ocr` latches. A file
+/// that is not a PDF no longer works for this: it fails only itself. No
+/// environment variable is touched, so this races nothing else in the binary,
+/// and the latch only ever moves one way. The `!mixed.ocr_attempted` assertion below is the precondition check:
 /// it fails loudly rather than letting the real assertions pass vacuously.
 #[test]
 fn a_scanned_pdf_ocr_never_reached_is_neither_stamped_nor_pruned() {
-    let staging = tempfile::tempdir().unwrap();
-    let garbage = staging.path().join("garbage.pdf");
-    std::fs::write(&garbage, b"this is not a pdf at all, just bytes").unwrap();
-
     let ocr_on = rhebok::config::PdfConfig {
         ocr: rhebok::config::OcrMode::Auto,
         ..rhebok::config::PdfConfig::default()
     };
+    let engine_refuses = rhebok::config::PdfConfig {
+        ocr_min_confidence: 2.0,
+        ..ocr_on.clone()
+    };
 
-    // Trips the latch. Its own result is irrelevant — the file cannot load by
-    // any route — so it is deliberately not asserted on.
-    let _ = rhebok::loaders::pdf::PdfLoader::load_file_with(&garbage, &ocr_on);
+    // Trips the latch. Its own result is irrelevant, so it is deliberately not
+    // asserted on.
+    let _ = rhebok::loaders::pdf::PdfLoader::load_file_with(
+        std::path::Path::new("tests/fixtures/corpus/mixed.pdf"),
+        &engine_refuses,
+    );
 
     // Precondition, and the only observable the latch has from out here:
     // `Loaded::ocr_attempted` on a file that DOES load.
@@ -1260,7 +1264,7 @@ fn a_scanned_pdf_ocr_never_reached_is_neither_stamped_nor_pruned() {
 /// The observable: on the run that reaches phase 2, `src/index.rs` prints
 /// `"rhebok: {n} PDF(s) still need recognition; running the OCR pass"` to
 /// stderr UNCONDITIONALLY, before it even attempts OCR — so this needs
-/// neither PDFium nor ONNX Runtime to be installed, and does not care whether
+/// no OCR engine to be available, and does not care whether
 /// recognition itself succeeds. Its absence is exactly the fast-path bug: the
 /// line can only be missing if phase 2 never started.
 #[test]

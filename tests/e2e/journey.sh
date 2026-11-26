@@ -231,8 +231,8 @@ okge "the hook injects again after the repair" "$(grep -c 'rhebok-context' "$T/h
 #
 # The second pass costs another seed copy, another stat walk and another full
 # pack build, so the guard that keeps it off an ordinary corpus is the part
-# worth pinning. Recognition itself is not asserted here: it needs PDFium and
-# ONNX Runtime, which this script must run without. The observable is the
+# worth pinning. Recognition itself is not asserted here: it needs an OCR
+# engine, which this script must run without. The observable is the
 # stderr line `src/index.rs` prints BEFORE OCR is attempted — its ABSENCE is
 # the assertion, so this section needs neither library installed and does not
 # care whether recognition would succeed.
