@@ -1,8 +1,36 @@
 use rhebok::config::EmbedConfig;
 use rhebok::embed::{Embedder, OllamaEmbedder};
+use std::io::{Read, Write};
 
 fn cfg() -> EmbedConfig {
     toml::from_str("model = \"qwen3-embedding:0.6b\"\ndimensions = 512").unwrap()
+}
+
+fn stub(status: &'static str, body: &'static str) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let mut buf = [0u8; 65536];
+            let _ = stream.read(&mut buf);
+            let resp = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(resp.as_bytes());
+        }
+    });
+    url
+}
+
+fn query_error(status: &'static str) -> String {
+    let mut c = cfg();
+    c.ollama_url = stub(status, r#"{"error":"nope"}"#);
+    format!(
+        "{:#}",
+        OllamaEmbedder::new(&c).embed_query("q").unwrap_err()
+    )
 }
 
 #[test]
@@ -188,4 +216,26 @@ fn an_embedding_outage_names_its_cause_once() {
     );
     assert_eq!(err.matches("did not answer in time").count(), 1, "{err}");
     assert_eq!(err.matches("operation timed out").count(), 1, "{err}");
+}
+
+#[test]
+fn a_rejected_or_missing_model_is_told_to_pull() {
+    for status in ["400 Bad Request", "404 Not Found"] {
+        let err = query_error(status);
+        assert!(
+            err.contains("ollama pull qwen3-embedding:0.6b"),
+            "{status}: {err}"
+        );
+        assert!(err.contains(&status[..3]), "{status}: {err}");
+    }
+}
+
+#[test]
+fn an_ollama_server_error_is_not_blamed_on_the_model() {
+    for status in ["500 Internal Server Error", "503 Service Unavailable"] {
+        let err = query_error(status);
+        assert!(err.contains(&status[..3]), "{status}: {err}");
+        assert!(!err.contains("ollama pull"), "{status}: {err}");
+        assert!(!err.contains("rejected model"), "{status}: {err}");
+    }
 }

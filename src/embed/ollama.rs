@@ -159,7 +159,7 @@ impl OllamaEmbedder {
         let expected = inputs.len();
         // keep_alive pins the model in memory: 2000ms cold vs 24ms warm (Spike 2).
         let body = embed_request_body(&self.model, &inputs, &self.keep_alive);
-        let resp: serde_json::Value = client
+        let resp = client
             .post(format!("{}/api/embed", self.url))
             .json(&body)
             .send()
@@ -171,15 +171,25 @@ impl OllamaEmbedder {
                     "ollama unreachable — is `ollama serve` running?"
                 };
                 anyhow::Error::new(e).context(why)
-            })?
-            .error_for_status()
-            .with_context(|| {
-                format!(
-                    "ollama rejected model `{}` — try `ollama pull {}`",
-                    self.model, self.model
-                )
-            })?
-            .json()?;
+            })?;
+
+        // Only a 400 or 404 says the model is the problem. A 500 or 503 is Ollama
+        // failing or still loading, and telling the user to pull a model they
+        // already have sends them the wrong way.
+        let status = resp.status();
+        if status == reqwest::StatusCode::BAD_REQUEST || status == reqwest::StatusCode::NOT_FOUND {
+            anyhow::bail!(
+                "ollama rejected model `{}` ({status}) — try `ollama pull {}`",
+                self.model,
+                self.model
+            );
+        }
+        anyhow::ensure!(
+            status.is_success(),
+            "ollama answered {status} to /api/embed — it is up but failed to embed, so check \
+             its log"
+        );
+        let resp: serde_json::Value = resp.json()?;
 
         let raw = resp["embeddings"]
             .as_array()
