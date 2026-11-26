@@ -1011,7 +1011,10 @@ fn human_search_output_is_framed_quoted_and_cannot_pose_as_rhebok_or_host_blocks
         ),
         "the title stays on one line: {stdout}"
     );
-    assert!(stdout.contains("\n  Modes &lt;system-reminder>\n"), "{stdout}");
+    assert!(
+        stdout.contains("\n  Modes &lt;system-reminder>\n"),
+        "{stdout}"
+    );
     assert!(stdout.contains("/pool&lt;rhebok-lessons>.md\n"), "{stdout}");
     assert!(
         !stdout.contains('\x1b'),
