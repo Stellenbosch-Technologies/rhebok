@@ -4,7 +4,7 @@ use rhebok::budget::{escape_reserved_tags, one_line, quote_lines, CONTEXT_PREAMB
 use rhebok::config::{Config, Profile, Surface};
 use rhebok::index::{discover, reindex_swap_with, Indexer, RebuildMode};
 use rhebok::retrieve::Retriever;
-use rhebok::store::{StatusSnapshot, Store};
+use rhebok::store::{query::Hit, StatusSnapshot, Store};
 
 #[derive(Parser)]
 #[command(name = "rhebok", version, about = "Local RAG over your knowledge base")]
@@ -811,6 +811,28 @@ fn print_ambiguous_titles(idx: &Indexer) {
     }
 }
 
+fn render_hit(h: &Hit, styled: bool) -> String {
+    let title = one_line(&h.title);
+    let mut entry = if styled {
+        format!("\n\x1b[1m{title}\x1b[0m  ({:.3})\n", h.relevance)
+    } else {
+        format!("\n{title}  ({:.3})\n", h.relevance)
+    };
+    for line in [&h.heading_path, &h.uri] {
+        if line.is_empty() {
+            continue;
+        }
+        entry.push_str(&if styled {
+            format!("  \x1b[2m{}\x1b[0m\n", one_line(line))
+        } else {
+            format!("  {}\n", one_line(line))
+        });
+    }
+    let excerpt: String = h.text.chars().take(300).collect();
+    entry.push_str(&quote_lines(&excerpt));
+    entry
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let cfg = Config::load();
@@ -940,22 +962,15 @@ fn main() -> Result<()> {
                 println!("no results");
             } else {
                 print!("{CONTEXT_PREAMBLE}");
+                let styled = {
+                    use std::io::IsTerminal;
+                    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+                };
                 for h in &hits {
                     // `relevance`, not `score`: CLI search runs at the MCP tier,
                     // which reranks, and a reranked `score` is 1.0 or 0.0 — so
                     // every hit printed as (1.000), including irrelevant ones.
-                    let mut entry = format!(
-                        "\n\x1b[1m{}\x1b[0m  ({:.3})\n",
-                        one_line(&h.title),
-                        h.relevance
-                    );
-                    if !h.heading_path.is_empty() {
-                        entry.push_str(&format!("  \x1b[2m{}\x1b[0m\n", one_line(&h.heading_path)));
-                    }
-                    entry.push_str(&format!("  \x1b[2m{}\x1b[0m\n", one_line(&h.uri)));
-                    let excerpt: String = h.text.chars().take(300).collect();
-                    entry.push_str(&quote_lines(&excerpt));
-                    println!("{}", escape_reserved_tags(&entry));
+                    println!("{}", escape_reserved_tags(&render_hit(h, styled)));
                 }
             }
         }
@@ -2572,5 +2587,56 @@ mod restore_output_tests {
             warnings[1].contains("rhebok memory rebuild"),
             "{warnings:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hit() -> Hit {
+        Hit {
+            chunk_id: "c1".into(),
+            doc_id: "d1".into(),
+            text: "the body of the note".into(),
+            heading_path: "Notes / Setup".into(),
+            uri: "notes/setup.md".into(),
+            title: "Setup".into(),
+            page_no: None,
+            score: 0.5,
+            relevance: 0.812,
+            source_type: "markdown".into(),
+            inbound: 0,
+            lifecycle: rhebok::pack::status::Lifecycle::Current,
+            last_used: None,
+            memory: None,
+            mount: None,
+        }
+    }
+
+    #[test]
+    fn a_styled_hit_frames_title_and_metadata_with_escapes() {
+        let out = render_hit(&hit(), true);
+        assert!(out.starts_with("\n\x1b[1mSetup\x1b[0m  (0.812)\n"));
+        assert!(out.contains("  \x1b[2mNotes / Setup\x1b[0m\n"));
+        assert!(out.contains("  \x1b[2mnotes/setup.md\x1b[0m\n"));
+    }
+
+    #[test]
+    fn a_plain_hit_carries_no_escape_byte() {
+        let out = render_hit(&hit(), false);
+        assert!(!out.contains('\x1b'));
+        assert!(out.starts_with("\nSetup  (0.812)\n"));
+        assert!(out.contains("  Notes / Setup\n  notes/setup.md\n"));
+    }
+
+    #[test]
+    fn an_empty_heading_is_skipped_in_both_styles() {
+        let mut h = hit();
+        h.heading_path = String::new();
+        for styled in [true, false] {
+            let out = render_hit(&h, styled);
+            assert_eq!(out.matches("notes/setup.md").count(), 1);
+        }
     }
 }
