@@ -383,8 +383,8 @@ pub fn disconnect_claude_code(paths: &Paths, cli: &ClaudeCli) -> Result<Vec<Stri
 fn register(paths: &Paths, cli: &ClaudeCli, r: &mut InstallReport) {
     if !cli.available() {
         r.warnings.push(
-            "Claude Code was not found on PATH, in ~/.local/bin or in ~/.claude/local, so the \
-             plugin is not registered with it. Install Claude Code \
+            "Claude Code was not found on PATH, in ~/.local/bin, in ~/.claude/local or in \
+             Homebrew's bin folder, so the plugin is not registered with it. Install Claude Code \
              (https://claude.com/claude-code), then run `rhebok install` again."
                 .to_string(),
         );
@@ -770,7 +770,8 @@ pub fn install_checks(
         out.push(InstallCheck {
             name: "claude",
             ok: false,
-            detail: "Claude Code was not found on PATH, in ~/.local/bin or in ~/.claude/local"
+            detail: "Claude Code was not found on PATH, in ~/.local/bin, in ~/.claude/local or in \
+                     Homebrew's bin folder"
                 .into(),
         });
     }

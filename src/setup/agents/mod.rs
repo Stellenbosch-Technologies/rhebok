@@ -47,9 +47,7 @@ impl AgentEnv {
         };
         let codex_home = codex_home_from(std::env::var_os("CODEX_HOME"), &home);
         let claude = ClaudeCli::first_available(&ClaudeCli::candidates(Some(&home)));
-        let search_path = std::env::var_os("PATH")
-            .map(|p| std::env::split_paths(&p).collect())
-            .unwrap_or_default();
+        let search_path = search_path_from(std::env::var_os("PATH"));
         AgentEnv {
             home,
             app_config,
@@ -95,6 +93,18 @@ impl AgentEnv {
             .map(|d| d.join(name))
             .find(|c| c.is_file())
     }
+}
+
+pub fn search_path_from(path_var: Option<std::ffi::OsString>) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = path_var
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    for dir in super::claude::HOMEBREW_BINS.map(PathBuf::from) {
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    dirs
 }
 
 pub fn codex_home() -> PathBuf {
