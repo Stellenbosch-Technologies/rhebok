@@ -209,8 +209,8 @@ export type WeightSettings = {
   current: number; investigating: number; proposed: number; superseded: number; decay: DecaySettings;
 };
 export type PdfSettings = {
-  ocr: "auto" | "off" | "force"; ocr_min_confidence: number; dpi: number; model_dir: string | null;
-  model_downloads: "if-missing" | "offline"; pdfium_lib_path: string | null; ort_dylib_path: string | null;
+  ocr: "auto" | "off" | "force"; ocr_engine: "auto" | "vision" | "oar"; ocr_min_confidence: number; dpi: number; model_dir: string | null;
+  model_downloads: "if-missing" | "offline"; ort_dylib_path: string | null;
 };
 export type MemorySettings = {
   enabled: boolean; lessons_max_tokens: number; min_confidence: number; duplicate_similarity: number;

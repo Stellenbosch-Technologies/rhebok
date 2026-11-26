@@ -21,9 +21,8 @@ cargo test --test it        # the one merged integration binary; see "Build and 
 make ci                     # scripts/ci-local.sh: every ci.yml and audit.yml job on this machine, plus the mod's tests
 ```
 
-MSRV is 1.95, and it is the OCR tree that sets it: `oar-ocr` and its two
-sibling crates declare 1.95, reached through `pdf-inspector`'s `ocr`
-feature. `nalgebra`, `safe_arch` and `wide` want 1.89 behind the same
+MSRV is 1.95, and it is the OCR tree that sets it: `oar-ocr` 0.11 and its
+sibling crates declare 1.95, reached through rhebok's own `ocr` feature. `nalgebra`, `safe_arch` and `wide` want 1.89 behind the same
 feature. The crates this line used to name — `htmd`/`ignore` for edition
 2024's 1.85 floor, `cxx`/`time` at 1.88 — are all still there and are all
 now slack. The floor therefore moves whenever `oar-ocr` does, and the CI
@@ -67,7 +66,10 @@ answering from the pack.
 
 **Two cargo features, both on by default.** `backup` pulls in the S3, Google
 Drive and encryption crates behind `rhebok backup`; `ocr` is
-`pdf-inspector/ocr`, the PDFium/ONNX tree that also sets the MSRV above.
+`pdf_oxide/rendering` (pure-Rust page drawing for OCR) plus the two engines in
+`src/loaders/ocr/`: Apple Vision through `objc2-vision` on macOS, and
+`oar-ocr` 0.11 on ONNX Runtime everywhere. PDF text itself comes from
+`pdf_oxide` in every build. It is the tree that also sets the MSRV above.
 `make dev` and `make test-dev` build and test with both off, which is the fast
 inner loop; CI runs `cargo clippy --all-targets --no-default-features` so the
 feature-off build cannot rot. A test that needs a feature is gated on it —

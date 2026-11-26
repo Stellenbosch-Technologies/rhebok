@@ -1249,7 +1249,7 @@ fn distinct_roots(sources: &[std::path::PathBuf]) -> Result<Vec<std::path::PathB
 /// text layer now and phase 2 recognizes afterwards. `Run` passes the user's
 /// settings through untouched.
 ///
-/// Free and pure so the forcing is testable without PDFium, ONNX Runtime or a
+/// Free and pure so the forcing is testable without an OCR engine or a
 /// scanned fixture — which matters more than it looks. A test that drives
 /// `discover_stat_first_with` with `ocr = auto` can only OBSERVE the forcing on
 /// a machine where those dylibs resolve: without them `Auto` falls back to the
@@ -1459,7 +1459,7 @@ fn consider_into(
             };
             // A `Run` pass re-queues a scanned PDF in exactly one case, and it
             // is the case with the data-loss consequence. `OCR_DISABLED` is
-            // process-wide, so on a machine missing PDFium or ONNX Runtime the
+            // process-wide, so on a machine whose OCR engine cannot start the
             // FIRST scanned PDF trips the latch and every one after it is
             // never attempted — same `Err(Scanned)`, no recognition behind it.
             // Left out of `ocr_pending` those URIs vanish from `live_uris`,
@@ -1484,7 +1484,7 @@ fn consider_into(
                 // only for the ONE failure it exists for: a PDF that
                 // was genuinely attempted with recognition enabled and
                 // still yielded nothing (`PdfError::Scanned`, no
-                // PDFium/ONNX Runtime, or a page that stays image-only
+                // usable OCR engine, or a page that stays image-only
                 // after OCR). A loader failure normally records no
                 // stamp, so the file is reconsidered next run. With a
                 // second pass that becomes an infinite retry for THIS
@@ -2846,8 +2846,8 @@ mod tests {
     /// The Skip pass loads PDFs with `ocr = off`, whatever the user configured.
     ///
     /// This is the half of that guarantee an integration test CANNOT pin on a
-    /// machine without PDFium and ONNX Runtime: with `ocr = auto` and the
-    /// dylibs absent, recognition falls back to the text layer by itself, so a
+    /// machine without a working OCR engine: with `ocr = auto` and the
+    /// engine unavailable, recognition falls back to the text layer by itself, so a
     /// Skip pass and a Run pass produce identical results and every assertion
     /// downstream passes whether or not `Skip` forced anything. Here the
     /// forcing is the only thing under test, and no dylib is involved.

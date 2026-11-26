@@ -1,5 +1,6 @@
 pub mod codex;
 pub mod markdown;
+pub mod ocr;
 pub mod pdf;
 pub mod transcript;
 pub mod web;

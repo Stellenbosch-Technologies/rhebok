@@ -83,9 +83,9 @@
         "model_dir": null,
         "model_downloads": "if-missing",
         "ocr": "auto",
+        "ocr_engine": "auto",
         "ocr_min_confidence": 0.5,
-        "ort_dylib_path": null,
-        "pdfium_lib_path": null
+        "ort_dylib_path": null
       },
       "prehook": {
         "injector": "mod",
@@ -198,9 +198,9 @@
         "model_dir": null,
         "model_downloads": "if-missing",
         "ocr": "auto",
+        "ocr_engine": "auto",
         "ocr_min_confidence": 0.5,
-        "ort_dylib_path": null,
-        "pdfium_lib_path": null
+        "ort_dylib_path": null
       },
       "prehook": {
         "injector": "mod",
