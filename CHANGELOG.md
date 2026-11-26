@@ -1,6 +1,64 @@
 # Changelog
 
-## Unreleased
+## 0.2.3 — 2026-11-26
+
+### Scanned PDFs
+
+- **OCR reads every scanned PDF.** rhebok now reads PDFs with
+  [pdf_oxide](https://crates.io/crates/pdf_oxide) in place of pdf-inspector.
+  pdf_oxide decides page by page whether the text layer can be trusted, and
+  draws the pages that need OCR, so PDFium is no longer needed.
+- **Apple Vision is the OCR engine on macOS.** It is part of macOS, so it needs
+  no library and no model download. Elsewhere the engine is oar-ocr with the
+  PP-OCRv6 models. These need ONNX Runtime, and are downloaded (about 31 MB,
+  checked by SHA-256) the first time a scanned page is read. On 27 labelled
+  scanned pages, word F1 was 0.943 with Vision and 0.903 with oar-ocr, against
+  0.875 with the old engine. Vision took 0.09 s per page against 1.18 s, and
+  peak memory fell from 1.8 GB to 550 MB.
+- **A page with text and pictures of text keeps its text** and gains the OCR
+  lines that its text does not already contain.
+- **One page that fails costs only that page.** Before, it turned OCR off for
+  the rest of the run.
+- **Any OCR program or service can read the scanned pages.** With
+  `ocr_engine = "command"`, rhebok runs `ocr_command` on a PNG of each page.
+  With `ocr_engine = "http"`, it POSTs the PNG to `ocr_url`, with
+  `RHEBOK_OCR_TOKEN` as a bearer token when it is set. Either one can answer in
+  plain text or in JSON lines with boxes and confidences, and
+  `ocr_timeout_secs` (default 120) limits each page. The dashboard cannot change
+  `ocr_command`, because it runs a program. See "Your own OCR engine" in
+  `docs/configuration.md`.
+- **`pdfium_lib_path` is gone.** `rhebok config check` reports it as an
+  unknown key; remove it from `config.toml`.
+- **PDFs that are already indexed keep the text that the old reader got from
+  them** until they change. Run `rhebok index --reindex` to read them again
+  with the new reader and engines.
+
+### Restart
+
+- **`rhebok restart` restarts a running dashboard and index on the installed
+  binary.** After an update, both keep running the old binary until they are
+  restarted. A dashboard comes back on the same port, so an open browser tab
+  keeps working. An index starts again with the same arguments; what it had not
+  yet published is lost, and the live index is unchanged. Restart leaves any
+  other holder of the index lock, such as a backup, running, and refuses while
+  an update runs.
+- **The Health tab's version card has a Restart button**, in the web dashboard
+  and in Rhebok.app. When an index is running, the button first says what the
+  restart costs.
+
+### Search
+
+- **Graph expansion reads only the chunks it returns.** The quality tiers that
+  use the graph (2 to 4) used to load the text of every chunk in the index for
+  each search. Peak memory for one of those searches fell from 735 MB to
+  231 MB at 100,000 chunks. Results are unchanged.
+- **The MCP server searches at the tier the config names now**, also after
+  that config changes while the server runs. Before, moving the hook tier from
+  0-1 to 2-4 made every prompt fail with `requires graph expansion, which
+  needs an open store` until the server restarted.
+- **An Ollama that fails to embed is no longer reported as a missing model.**
+  Only a 400 or 404 says to run `ollama pull`. A 500 or 503 says that Ollama
+  is up but failed, and to check its log.
 
 ### Native dashboard (macOS)
 
