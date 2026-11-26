@@ -525,7 +525,7 @@ impl RhebokTools {
     }
 
     pub fn search_reply(&self, query: &str, quality: Option<u8>) -> (String, HitsOutput) {
-        let profile = Profile::tier(Self::clamp_quality(quality));
+        let profile = self.config.tier(Self::clamp_quality(quality));
         // `mcp.threshold` existed in the config, was documented, and was
         // read by nothing — an explicit search returned every candidate
         // however weak. It is deliberately lower than the hook's (0.55 vs
@@ -580,7 +580,8 @@ impl RhebokTools {
 
     fn context_profile(&self) -> Profile {
         let mut profile = self.config.profile_for(crate::config::Surface::Hook);
-        profile.budget_ms = profile.budget_ms.max(
+        profile.budget_ms = Profile::widest_budget(
+            profile.budget_ms,
             self.config
                 .profile_for(crate::config::Surface::Mcp)
                 .budget_ms,

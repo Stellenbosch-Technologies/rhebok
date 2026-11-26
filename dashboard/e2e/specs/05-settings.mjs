@@ -83,6 +83,26 @@ export const tests = {
     assert(checked.startsWith("balanced"), `the reloaded form shows the saved tier, got ${checked}`);
   },
 
+  "a tier's time budget shows its shipped default and saves 0 for no limit": async ({ page, sandbox }) => {
+    sandbox.writeConfig();
+    await openSettings(page, "Retrieval");
+    const shell = await page.$eval('[data-path="budget_ms.exhaustive"]', (el) => el.innerText);
+    assert(/default 1600/.test(shell), `the field names the shipped budget:\n${shell}`);
+    const shown = await page.$eval('input[aria-label="budget_ms.exhaustive"]', (el) => el.value);
+    assert(shown === "1600", `the field shows the shipped budget, got ${shown}`);
+    await fill(page, 'input[aria-label="budget_ms.exhaustive"]', "0");
+    await saveThroughBar(page);
+    await page.waitForSelector("[data-testid=settings-notice]");
+    const { json } = await api(page, "/api/config");
+    assert(json.effective.budget_ms.exhaustive === 0, `budget on disk: ${JSON.stringify(json.effective.budget_ms)}`);
+    assert(json.effective.budget_ms.thorough === 700, `other tiers keep theirs: ${JSON.stringify(json.effective.budget_ms)}`);
+    assert(/\[budget_ms\]\s*exhaustive = 0/.test(readFileSync(sandbox.configPath, "utf8")), "config.toml carries the budget");
+    await page.reload({ waitUntil: "networkidle0" });
+    await openSettings(page, "Retrieval");
+    const reloaded = await page.$eval('input[aria-label="budget_ms.exhaustive"]', (el) => el.value);
+    assert(reloaded === "0", `the reloaded form shows the saved budget, got ${reloaded}`);
+  },
+
   "the claude code status line style is chosen and saved": async ({ page, sandbox }) => {
     sandbox.writeConfig();
     await openSettings(page, "Retrieval");

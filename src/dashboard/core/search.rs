@@ -31,7 +31,7 @@ pub fn search(cfg: &Config, q: &SearchQuery) -> Result<SearchOutcome, DashboardE
     let surface = crate::config::Surface::Hook;
     let profile = q
         .tier
-        .map(crate::config::Profile::tier)
+        .map(|t| cfg.tier(t))
         .unwrap_or_else(|| cfg.profile_for(surface));
     let threshold = cfg.surface(surface).threshold;
     let max_tokens = cfg.surface(surface).max_tokens;

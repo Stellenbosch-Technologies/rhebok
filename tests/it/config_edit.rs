@@ -393,3 +393,18 @@ fn config_set_refuses_a_bad_value_and_config_check_reports_it() {
         .stdout(contains("1 problem(s)"))
         .stdout(contains("hook.thresold"));
 }
+
+#[test]
+fn a_tier_budget_is_whole_milliseconds_under_a_tier_name_and_zero_is_allowed() {
+    let errors = check("[budget_ms]\nexhaustive = -1\nexhaustiv = 3000\n");
+    assert_eq!(
+        paths(&errors),
+        ["budget_ms.exhaustiv", "budget_ms.exhaustive"],
+        "{errors:?}"
+    );
+    assert!(
+        errors[0].message.contains("did you mean `exhaustive`"),
+        "{errors:?}"
+    );
+    assert!(check("[budget_ms]\nexhaustive = 0\nfast = 4000\n").is_empty());
+}

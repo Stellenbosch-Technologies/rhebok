@@ -283,6 +283,17 @@ export function RetrievalSection({ ctx, bench }: { ctx: Ctx; bench: BenchTier[] 
     <>
       <SurfaceCard ctx={ctx} surface="hook" title="Prompt hook" bench={bench} />
       <SurfaceCard ctx={ctx} surface="mcp" title="MCP tool (rhebok_search)" bench={bench} />
+      <Card title="Time budgets">
+        <span className="text-xs text-muted">
+          How long, in milliseconds, each tier may search before it skips its remaining stages. 0 means no limit.
+          The hook still stops at Claude Code's five seconds.
+        </span>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+          {TIERS.map((tier) => (
+            <NumberField key={tier} ctx={ctx} path={`budget_ms.${tier}`} label={tier} />
+          ))}
+        </div>
+      </Card>
       <Card title="Claude Code">
         <SelectField ctx={ctx} path="prehook.injector" label="Who adds context" options={["mod", "command", "off"]}
           hint="mod is the rhebok-prehook mod; command is the classic UserPromptSubmit hook." />

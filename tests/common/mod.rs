@@ -408,6 +408,40 @@ pub fn rooted(dir: &tempfile::TempDir, name: &str) -> (std::path::PathBuf, Strin
 /// this loses is exercised deliberately elsewhere by fixtures built without
 /// one, e.g. `Store::fts_search`'s own tests in `retrieve_primitives.rs`.
 pub fn retriever_with_corpus() -> (tempfile::TempDir, Retriever) {
+    retriever_with_corpus_querying_with(Box::new(FakeEmbedder::default()))
+}
+
+pub struct SlowQueryEmbedder {
+    pub delay: std::time::Duration,
+}
+impl Embedder for SlowQueryEmbedder {
+    fn embed_documents(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+        Ok(texts.iter().map(|t| hash_vec(t)).collect())
+    }
+    fn embed_query(&self, text: &str) -> anyhow::Result<Vec<f32>> {
+        std::thread::sleep(self.delay);
+        Ok(hash_vec(text))
+    }
+    fn warm(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn model_id(&self) -> String {
+        "fake@4".into()
+    }
+    fn dimensions(&self) -> usize {
+        4
+    }
+}
+
+pub fn retriever_with_slow_query_embed(
+    delay: std::time::Duration,
+) -> (tempfile::TempDir, Retriever) {
+    retriever_with_corpus_querying_with(Box::new(SlowQueryEmbedder { delay }))
+}
+
+fn retriever_with_corpus_querying_with(
+    embedder: Box<dyn Embedder>,
+) -> (tempfile::TempDir, Retriever) {
     let dir = tempfile::tempdir().unwrap();
     {
         let store = Store::open(dir.path(), 4).unwrap();
@@ -449,10 +483,6 @@ pub fn retriever_with_corpus() -> (tempfile::TempDir, Retriever) {
     )
     .unwrap();
     let pack = rhebok::pack::Pack::open(&pack_dir, "fake@4", 4).unwrap();
-    let embedder = Box::new(FakeEmbedder {
-        calls: Arc::new(AtomicUsize::new(0)),
-        queries: Arc::new(AtomicUsize::new(0)),
-    });
     let retriever =
         Retriever::new(store, embedder, "http://localhost:11434".into()).with_pack(Some(pack));
     (dir, retriever)

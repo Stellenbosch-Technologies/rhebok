@@ -241,7 +241,7 @@ fn no_hits_yields_no_context_block() {
 }
 
 /// Companion to `retrieve_profile.rs`'s
-/// `a_zero_budget_at_tier_1_skips_bm25_when_the_deadline_trips`, which asserts
+/// `a_blown_budget_at_tier_1_skips_bm25_when_the_deadline_trips`, which asserts
 /// only on the in-process `StageReport` and never touches `hook.rs` or stderr
 /// at all — it was previously (mis)named
 /// `a_degraded_retrieval_is_reported_on_stderr`. This test drives the real

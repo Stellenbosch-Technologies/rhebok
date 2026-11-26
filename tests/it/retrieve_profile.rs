@@ -9,8 +9,10 @@ use rhebok::config::Profile;
 /// side deliberately.
 const AMPLE_TOKENS: usize = 100_000;
 
+const SLOWER_THAN_THE_BUDGET: std::time::Duration = std::time::Duration::from_millis(20);
+
 /// Stage-gating tests must not race the deadline. They assert WHICH stages a
-/// profile enables; `a_zero_budget_still_returns_results_and_reports_degradation`
+/// profile enables; `a_blown_budget_still_returns_results_and_reports_degradation`
 /// separately asserts what happens when time runs out. Measured: tier 1's real
 /// 130ms budget is close enough to the ~65-90ms warm floor that stage 1 alone can
 /// exceed it under parallel test load, which made these tests fail about 1 run in 8.
@@ -87,10 +89,10 @@ fn tier_2_adds_graph_expansion() {
 }
 
 #[test]
-fn a_zero_budget_still_returns_results_and_reports_degradation() {
-    let (_d, r) = common::retriever_with_corpus();
+fn a_blown_budget_still_returns_results_and_reports_degradation() {
+    let (_d, r) = common::retriever_with_slow_query_embed(SLOWER_THAN_THE_BUDGET);
     let mut p = Profile::tier(4);
-    p.budget_ms = 0;
+    p.budget_ms = 1;
     let (hits, report) = r.search_with_report("pooling", &p).unwrap();
     assert!(report.degraded, "blown budget must be reported, not hidden");
     assert!(
@@ -116,17 +118,37 @@ fn a_zero_budget_still_returns_results_and_reports_degradation() {
 /// vector-only for weeks because embed+vector exceeded its 220ms budget, and
 /// the only symptom was worse results.
 #[test]
-fn a_zero_budget_at_tier_1_skips_bm25_when_the_deadline_trips() {
-    let (_d, r) = common::retriever_with_corpus();
+fn a_blown_budget_at_tier_1_skips_bm25_when_the_deadline_trips() {
+    let (_d, r) = common::retriever_with_slow_query_embed(SLOWER_THAN_THE_BUDGET);
     let mut p = rhebok::config::Profile::tier(1);
-    p.budget_ms = 0; // force the deadline to trip immediately
+    p.budget_ms = 1;
 
     let (_hits, report) = r.search_with_report("pooling", &p).unwrap();
-    assert!(report.degraded, "a zero budget must degrade");
+    assert!(report.degraded, "a blown budget must degrade");
     assert!(
         !report.stages_run.contains(&"bm25"),
-        "tier 1 asked for bm25 and a zero budget must have skipped it"
+        "tier 1 asked for bm25 and a blown budget must have skipped it"
     );
+}
+
+#[test]
+fn a_zero_budget_has_no_deadline_and_runs_every_stage_its_tier_asks_for() {
+    let (_d, r) = common::retriever_with_slow_query_embed(SLOWER_THAN_THE_BUDGET);
+    let mut p = Profile::tier(4);
+    p.budget_ms = 0;
+    let (hits, report) = r.search_with_report("pooling", &p).unwrap();
+    assert!(
+        !report.degraded,
+        "a zero budget must never trip: {report:?}"
+    );
+    for stage in ["vector", "bm25", "fusion", "graph"] {
+        assert!(
+            report.stages_run.contains(&stage),
+            "{stage} missing from {:?}",
+            report.stages_run
+        );
+    }
+    assert!(!hits.is_empty());
 }
 
 #[test]
