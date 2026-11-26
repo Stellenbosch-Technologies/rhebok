@@ -280,8 +280,12 @@ fn argv_of_reads_a_live_process_arguments_including_spaces() {
         .spawn()
         .unwrap();
     let pid = reaped(child);
-    let argv = rhebok::restart::argv_of(pid);
-    kill(pid);
+    let _cleanup = KillOnDrop(pid);
+    let mut argv = None;
+    wait_for("the shell's arguments to be readable", || {
+        argv = rhebok::restart::argv_of(pid);
+        argv.is_some()
+    });
     assert_eq!(
         argv.unwrap(),
         ["/bin/sh", "-c", "sleep 30; true", "with space"]
