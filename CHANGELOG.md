@@ -78,6 +78,13 @@
 
 ## 0.2.2 — 2026-11-25
 
+### CLI
+
+- **`rhebok search` prints plain text when its output is not a terminal**, and
+  when `NO_COLOR` is set. Piping it into a file, a grep or the search slash
+  command no longer writes escape bytes into the text; a terminal looks the
+  same as before.
+
 ### MCP
 
 - **Every tool returns structured output.** All seven tools declare an
