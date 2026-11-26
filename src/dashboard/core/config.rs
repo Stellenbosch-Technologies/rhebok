@@ -66,9 +66,35 @@ fn view_after_write(path: &Path) -> Result<ConfigView, DashboardError> {
         .map_err(internal)
 }
 
+const FILE_ONLY: &str = "pdf.ocr_command";
+
+fn ocr_command_in(text: Option<&str>) -> Option<toml::Value> {
+    text?
+        .parse::<toml::Table>()
+        .ok()?
+        .get("pdf")?
+        .get("ocr_command")
+        .cloned()
+}
+
+fn file_only_change(current: Option<&str>, patch: &Patch) -> Option<FieldError> {
+    let next = patched_text(current, patch).ok()?;
+    (ocr_command_in(current) != ocr_command_in(Some(&next))).then(|| {
+        FieldError::new(
+            FILE_ONLY,
+            "runs a program on each scanned page, so it can be changed only in config.toml \
+             or with `rhebok config set`, not from the dashboard",
+        )
+    })
+}
+
 pub fn save(path: &Path, req: ConfigSave) -> Result<ConfigSaved, DashboardError> {
     let _writing = CONFIG_WRITE.lock().unwrap_or_else(|e| e.into_inner());
     let patch = Patch::from_json(&req.set, &req.unset).map_err(DashboardError::Unprocessable)?;
+    let current = read_document(path).map_err(internal)?;
+    if let Some(refused) = file_only_change(current.as_deref(), &patch) {
+        return Err(DashboardError::Unprocessable(vec![refused]));
+    }
     match update(path, Some(&req.etag), &patch).map_err(internal)? {
         Outcome::Written { .. } => view_after_write(path),
         Outcome::Conflict { etag } => Err(DashboardError::ConfigChanged {
@@ -92,6 +118,12 @@ pub fn check(path: &Path, req: ConfigCheck) -> Result<ConfigChecked, DashboardEr
         }
     };
     let current = read_document(path).map_err(internal)?;
+    if let Some(refused) = file_only_change(current.as_deref(), &patch) {
+        return Ok(ConfigChecked {
+            blocking: vec![refused.clone()],
+            errors: vec![refused],
+        });
+    }
     let (errors, blocking) = match patched_text(current.as_deref(), &patch) {
         Ok(next) => {
             let errors = check_text(&next);
@@ -176,4 +208,96 @@ pub fn set_embed_endpoint(
     }
     env_file::write_entries(&env_path, &changes).map_err(internal)?;
     view_after_write(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::edit::etag_of;
+
+    fn write(text: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, text).unwrap();
+        (dir, path)
+    }
+
+    fn request(path: &Path, set: serde_json::Value, unset: &[&str]) -> ConfigSave {
+        let text = std::fs::read_to_string(path).ok();
+        ConfigSave {
+            etag: etag_of(text.as_deref()),
+            set: set.as_object().cloned().unwrap_or_default(),
+            unset: unset.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn refused(result: Result<ConfigSaved, DashboardError>) -> bool {
+        matches!(result, Err(DashboardError::Unprocessable(ref errors)) if errors.iter().any(|e| e.path == FILE_ONLY))
+    }
+
+    #[test]
+    fn the_dashboard_cannot_set_change_or_remove_the_ocr_command() {
+        let original = "[pdf]\nocr_command = [\"tesseract\", \"{image}\", \"-\"]\n";
+        let (_dir, path) = write(original);
+        for (set, unset) in [
+            (
+                serde_json::json!({ "pdf.ocr_command": ["sh", "-c", "curl evil"] }),
+                vec![],
+            ),
+            (
+                serde_json::json!({ "pdf": { "ocr_command": ["sh"] } }),
+                vec![],
+            ),
+            (serde_json::json!({}), vec!["pdf.ocr_command"]),
+            (serde_json::json!({}), vec!["pdf"]),
+        ] {
+            let req = request(&path, set.clone(), &unset);
+            assert!(refused(save(&path, req)), "{set} {unset:?}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        }
+        let (_empty_dir, empty) = write("");
+        let req = request(
+            &empty,
+            serde_json::json!({ "pdf.ocr_command": ["sh"] }),
+            &[],
+        );
+        assert!(refused(save(&empty, req)));
+    }
+
+    #[test]
+    fn other_settings_still_save_beside_an_ocr_command() {
+        let (_dir, path) = write("[pdf]\nocr_command = [\"tesseract\", \"{image}\", \"-\"]\n");
+        let req = request(
+            &path,
+            serde_json::json!({ "pdf.ocr_engine": "http", "pdf.ocr_url": "http://ocr.local/read" }),
+            &[],
+        );
+        assert!(save(&path, req).is_ok());
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            saved.contains("ocr_command = [\"tesseract\", \"{image}\", \"-\"]"),
+            "{saved}"
+        );
+        assert!(
+            saved.contains("ocr_url = \"http://ocr.local/read\""),
+            "{saved}"
+        );
+    }
+
+    #[test]
+    fn the_settings_check_reports_the_refusal_as_blocking() {
+        let (_dir, path) = write("");
+        let checked = check(
+            &path,
+            ConfigCheck {
+                set: serde_json::json!({ "pdf.ocr_command": ["sh"] })
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+                unset: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert!(checked.blocking.iter().any(|e| e.path == FILE_ONLY));
+    }
 }

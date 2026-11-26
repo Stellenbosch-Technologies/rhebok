@@ -521,7 +521,8 @@ garbled, are recognized with OCR, which is optional. A page that has real text
 and also images with text in them keeps its text, and gains the OCR lines that
 its text does not already contain.
 
-rhebok has two OCR engines:
+rhebok has two OCR engines of its own, and can use yours instead (see
+[Your own OCR engine](#your-own-ocr-engine)):
 
 - **Apple Vision**, the default on macOS. It is part of macOS, so it needs no
   library, no model download and no setup.
@@ -546,7 +547,7 @@ second pass at all.
 ```toml
 [pdf]
 ocr                = "auto"      # auto | off | force
-ocr_engine         = "auto"      # auto | vision | oar; auto is vision on macOS, oar elsewhere
+ocr_engine         = "auto"      # auto | vision | oar | command | http; auto is vision on macOS, oar elsewhere
 ocr_min_confidence = 0.5         # drop weaker recognition rather than index noise
 dpi                = 150         # resolution at which pages are drawn for OCR
 model_downloads    = "if-missing"  # if-missing | offline
@@ -623,6 +624,59 @@ Without the engine, `rhebok` says so once and falls back to text-layer
 extraction for the rest of the run — scanned pages are skipped and reported,
 exactly as they were before OCR existed. With oar-ocr, the first recognized
 document also downloads the models, which takes around twenty seconds.
+
+#### Your own OCR engine
+
+Any OCR program or service can read rhebok's scanned pages. rhebok still finds
+the scanned pages, draws each one at `dpi`, and puts the text it gets back in
+reading order; your engine only reads one page image at a time.
+
+**A command.** rhebok saves the page as a PNG in a temporary file, runs the
+command with `{image}` replaced by that file's path, and deletes the file
+afterwards. Without `{image}` in the command, the PNG goes to its standard
+input instead.
+
+```toml
+[pdf]
+ocr_engine  = "command"
+ocr_command = ["tesseract", "{image}", "-", "-l", "eng+afr"]
+```
+
+The command is a list, not a shell line: each word is one argument, and nothing
+is expanded. `ocr_command` can be set only in `config.toml` or with
+`rhebok config set`. The dashboard refuses to change it, because it runs a
+program.
+
+**An HTTP endpoint.** rhebok POSTs the PNG (`Content-Type: image/png`) to
+`ocr_url`. If `RHEBOK_OCR_TOKEN` is set, in your environment or in the `env`
+file beside `config.toml` (mode 0600 or tighter), it is sent as
+`Authorization: Bearer <token>`.
+
+```toml
+[pdf]
+ocr_engine = "http"
+ocr_url    = "http://ocr-box.local:8080/read"
+```
+
+This sends images of your scanned pages to that address. `rhebok status` names
+the endpoint's host on its `ocr:` line.
+
+**What to answer.** Either engine answers in one of three shapes:
+
+- Plain text, one line of the page per line. rhebok keeps the order you give.
+- One JSON object per line, or a JSON array of them:
+  `{"text": "…", "confidence": 0.93, "box": [left, top, right, bottom]}`.
+  `confidence` (0 to 1) and `box` (pixels in the image you were sent) are
+  optional. When every line has a box, rhebok joins pieces of one row and reads
+  a two-column page column by column. `ocr_min_confidence` drops lines below
+  it; a line without a confidence is always kept.
+
+**When it fails.** A command that exits with an error or runs longer than
+`ocr_timeout_secs` (120 by default), or an endpoint that answers with an error
+or too slowly, costs only that page: rhebok says so on stderr and goes on. A
+command that cannot be started, an endpoint that cannot be reached or refuses
+the token, or a missing `ocr_command` or `ocr_url` turns OCR off for the rest
+of the run, once, with the reason.
 
 ### Calibrating the injection threshold
 

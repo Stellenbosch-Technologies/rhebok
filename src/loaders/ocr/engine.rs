@@ -2,6 +2,7 @@ use super::EngineKind;
 use crate::config::ModelDownloads;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub struct PageImage {
     pub width: u32,
@@ -24,6 +25,10 @@ pub struct EngineSettings {
     pub model_dir: Option<PathBuf>,
     pub downloads: ModelDownloads,
     pub minimum_confidence: f32,
+    pub command: Option<Vec<String>>,
+    pub url: Option<String>,
+    pub token: Option<String>,
+    pub timeout: Duration,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -43,12 +48,28 @@ pub enum EngineError {
     MissingModel(PathBuf),
     #[error(transparent)]
     Oar(#[from] oar_ocr::core::OCRError),
+    #[error("{0}")]
+    NotConfigured(&'static str),
+    #[error("the OCR command could not be started: {0}")]
+    CommandMissing(String),
+    #[error("{0}")]
+    Endpoint(String),
+    #[error("{0}")]
+    Page(String),
+}
+
+impl EngineError {
+    pub fn spoils_the_run(&self) -> bool {
+        !matches!(self, EngineError::Page(_))
+    }
 }
 
 pub enum Engine {
     #[cfg(target_os = "macos")]
     Vision(super::vision::VisionEngine),
     Oar(Box<super::oar::OarEngine>),
+    Command(super::external::CommandEngine),
+    Http(super::external::HttpEngine),
 }
 
 impl Engine {
@@ -57,6 +78,8 @@ impl Engine {
             #[cfg(target_os = "macos")]
             Engine::Vision(engine) => engine.recognize(page),
             Engine::Oar(engine) => engine.recognize(page),
+            Engine::Command(engine) => engine.recognize(page),
+            Engine::Http(engine) => engine.recognize(page),
         })
     }
 }
@@ -94,6 +117,17 @@ fn build(kind: EngineKind, settings: &EngineSettings) -> Result<Engine, EngineEr
     match kind {
         EngineKind::Vision => vision_engine(settings),
         EngineKind::Oar => Ok(Engine::Oar(Box::new(super::oar::OarEngine::new(settings)?))),
+        EngineKind::Command => Ok(Engine::Command(super::external::CommandEngine::new(
+            settings.command.as_deref(),
+            settings.timeout,
+            settings.minimum_confidence,
+        )?)),
+        EngineKind::Http => Ok(Engine::Http(super::external::HttpEngine::new(
+            settings.url.as_deref(),
+            settings.token.clone(),
+            settings.timeout,
+            settings.minimum_confidence,
+        )?)),
     }
 }
 
@@ -208,13 +242,48 @@ mod tests {
         );
     }
 
+    fn settings() -> EngineSettings {
+        EngineSettings {
+            model_dir: None,
+            downloads: ModelDownloads::Offline,
+            minimum_confidence: 0.5,
+            command: None,
+            url: None,
+            token: None,
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    #[test]
+    fn only_a_page_failure_leaves_ocr_on_for_the_rest_of_the_run() {
+        assert!(!EngineError::Page("timed out".into()).spoils_the_run());
+        for fatal in [
+            EngineError::NotConfigured("no command"),
+            EngineError::CommandMissing("tesseract".into()),
+            EngineError::Endpoint("refused".into()),
+            EngineError::VisionUnavailable,
+            EngineError::Image,
+        ] {
+            assert!(fatal.spoils_the_run(), "{fatal}");
+        }
+    }
+
+    #[test]
+    fn an_external_engine_without_its_setting_refuses_to_build() {
+        for kind in [EngineKind::Command, EngineKind::Http] {
+            assert!(matches!(
+                engine_for(kind, &settings()),
+                Err(EngineError::NotConfigured(_))
+            ));
+        }
+    }
+
     #[test]
     fn a_confidence_floor_outside_zero_to_one_refuses_to_build_an_engine() {
         for floor in [-0.1, 1.5, f32::NAN] {
             let settings = EngineSettings {
-                model_dir: None,
-                downloads: ModelDownloads::Offline,
                 minimum_confidence: floor,
+                ..settings()
             };
             assert!(matches!(
                 engine_for(EngineKind::Oar, &settings),

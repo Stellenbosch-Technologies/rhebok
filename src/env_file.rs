@@ -22,6 +22,7 @@ impl std::fmt::Debug for RemoteEmbed {
 pub const URL_VAR: &str = "RHEBOK_EMBED_URL";
 pub const MODEL_VAR: &str = "RHEBOK_EMBED_MODEL";
 pub const TOKEN_VAR: &str = "RHEBOK_EMBED_TOKEN";
+pub const OCR_TOKEN_VAR: &str = "RHEBOK_OCR_TOKEN";
 
 pub fn read_lenient(path: &Path) -> BTreeMap<String, String> {
     std::fs::read_to_string(path)
@@ -109,6 +110,19 @@ pub fn read_map(path: &Path) -> Result<BTreeMap<String, String>> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     Ok(parse(&text))
+}
+
+pub fn ocr_token(config_path: &Path) -> Result<Option<String>> {
+    if let Some(token) = std::env::var(OCR_TOKEN_VAR).ok().filter(|v| !v.is_empty()) {
+        return Ok(Some(token));
+    }
+    let path = env_path(config_path);
+    if !path.exists() {
+        return Ok(None);
+    }
+    Ok(read_map(&path)?
+        .remove(OCR_TOKEN_VAR)
+        .filter(|v| !v.is_empty()))
 }
 
 pub fn resolve(config_path: &Path) -> Result<Option<RemoteEmbed>> {

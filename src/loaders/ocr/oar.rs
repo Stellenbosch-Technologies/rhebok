@@ -91,6 +91,10 @@ mod tests {
             model_dir,
             downloads,
             minimum_confidence: 0.5,
+            command: None,
+            url: None,
+            token: None,
+            timeout: std::time::Duration::from_secs(5),
         }
     }
 

@@ -130,6 +130,7 @@ pub fn view(config_path: &Path) -> Result<Value> {
         "errors": text.as_deref().map(check).unwrap_or_default(),
         "secrets": {
             "embed.token": set_or_unset(pick(TOKEN_VAR).is_some()),
+            "pdf.ocr_token": set_or_unset(pick(env_file::OCR_TOKEN_VAR).is_some()),
             "backup.key": set_or_unset(cfg.backup_key_path().exists()),
             "backup.drive_token": set_or_unset(cfg.drive_token_path().exists()),
         },

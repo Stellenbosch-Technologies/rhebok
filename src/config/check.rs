@@ -497,6 +497,7 @@ impl Ranges<'_> {
             1.0,
         );
         self.above("pdf.dpi", cfg.pdf.dpi.into(), 0.0);
+        self.above("pdf.ocr_timeout_secs", cfg.pdf.ocr_timeout_secs as f64, 0.0);
     }
 
     fn memory(&mut self, cfg: &Config) {

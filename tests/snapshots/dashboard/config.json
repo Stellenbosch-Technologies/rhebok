@@ -83,8 +83,11 @@
         "model_dir": null,
         "model_downloads": "if-missing",
         "ocr": "auto",
+        "ocr_command": null,
         "ocr_engine": "auto",
         "ocr_min_confidence": 0.5,
+        "ocr_timeout_secs": "<n>",
+        "ocr_url": null,
         "ort_dylib_path": null
       },
       "prehook": {
@@ -198,8 +201,11 @@
         "model_dir": null,
         "model_downloads": "if-missing",
         "ocr": "auto",
+        "ocr_command": null,
         "ocr_engine": "auto",
         "ocr_min_confidence": 0.5,
+        "ocr_timeout_secs": "<n>",
+        "ocr_url": null,
         "ort_dylib_path": null
       },
       "prehook": {
@@ -273,7 +279,8 @@
     "secrets": {
       "backup.drive_token": "unset",
       "backup.key": "unset",
-      "embed.token": "unset"
+      "embed.token": "unset",
+      "pdf.ocr_token": "unset"
     },
     "surface_weights": {
       "hook": {

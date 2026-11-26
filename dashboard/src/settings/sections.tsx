@@ -611,8 +611,12 @@ export function DocumentsSection({ ctx }: { ctx: Ctx }) {
     <Card title="PDF and OCR">
       <SelectField ctx={ctx} path="pdf.ocr" label="OCR" options={["auto", "off", "force"]}
         hint="auto recognises only pages that have no text layer." />
-      <SelectField ctx={ctx} path="pdf.ocr_engine" label="OCR engine" options={["auto", "vision", "oar"]}
-        hint="auto uses Apple Vision on macOS and oar-ocr elsewhere. oar-ocr needs ONNX Runtime." />
+      <SelectField ctx={ctx} path="pdf.ocr_engine" label="OCR engine" options={["auto", "vision", "oar", "command", "http"]}
+        hint="auto uses Apple Vision on macOS and oar-ocr elsewhere. command runs the ocr_command set in config.toml; http sends pages to the OCR endpoint." />
+      <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+        <TextField ctx={ctx} path="pdf.ocr_url" label="OCR endpoint" optional />
+        <NumberField ctx={ctx} path="pdf.ocr_timeout_secs" label="OCR timeout per page (s)" />
+      </div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-4">
         <NumberField ctx={ctx} path="pdf.ocr_min_confidence" label="Min OCR confidence (0-1)" />
         <NumberField ctx={ctx} path="pdf.dpi" label="Render DPI" />

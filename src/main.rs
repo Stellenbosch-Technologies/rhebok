@@ -1205,11 +1205,7 @@ fn main() -> Result<()> {
                     );
                     println!(
                         "ocr:        {}",
-                        rhebok::loaders::pdf::describe_ocr(
-                            mode,
-                            rhebok::loaders::ocr::EngineKind::for_choice(cfg.pdf.ocr_engine),
-                            &missing
-                        )
+                        rhebok::loaders::pdf::describe_ocr(mode, &cfg.pdf, &missing)
                     );
                 }
             }
