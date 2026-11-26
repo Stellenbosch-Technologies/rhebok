@@ -163,6 +163,25 @@ quality = 2
 quality = 4
 ```
 
+Change a tier's budget, in milliseconds, under its name:
+
+```toml
+[budget_ms]
+exhaustive = 4000
+```
+
+Set a budget to `0` to give that tier no deadline: every stage the tier asks
+for runs, however long it takes.
+
+The new budget applies wherever that tier runs: the hook, the MCP tool,
+`rhebok search --quality` and the dashboard's search. `rhebok bench` still
+measures the shipped budgets. A budget is checked between stages, so a stage
+that has already started always finishes. When the budget runs out, the
+remaining stages are skipped, and `rhebok search` prints on stderr which
+stages ran. Raising the hook's budget
+does not move the five seconds Claude Code allows the hook, or the four
+seconds the query embed is given.
+
 ### Who injects context into prompts
 
 rhebok ships two ways to add context to a Claude Code prompt: the

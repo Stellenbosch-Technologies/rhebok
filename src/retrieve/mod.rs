@@ -636,7 +636,7 @@ impl Retriever {
         let t0 = Instant::now();
         let mut report = StageReport::default();
         let deadline = |r: &mut StageReport| -> bool {
-            if t0.elapsed().as_millis() >= p.budget_ms as u128 {
+            if p.time_left_ms(t0.elapsed().as_millis()) == Some(0) {
                 r.degraded = true;
                 true
             } else {
@@ -978,9 +978,13 @@ impl Retriever {
         if let Some(rr) = &p.rerank {
             if !deadline(&mut report) {
                 // Give the reranker only the time that is actually left.
-                let left = (p.budget_ms as u128).saturating_sub(t0.elapsed().as_millis());
-                fused = rerank::Reranker::with_budget(&self.ollama_url, &rr.model, left as u64)
-                    .rerank(query, fused, rr.top_n);
+                let reranker = match p.time_left_ms(t0.elapsed().as_millis()) {
+                    Some(left) => {
+                        rerank::Reranker::with_budget(&self.ollama_url, &rr.model, left as u64)
+                    }
+                    None => rerank::Reranker::new(&self.ollama_url, &rr.model),
+                };
+                fused = reranker.rerank(query, fused, rr.top_n);
                 report.stages_run.push("rerank");
             }
         }

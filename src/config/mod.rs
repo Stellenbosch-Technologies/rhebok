@@ -80,6 +80,18 @@ pub struct Profile {
 }
 
 impl Profile {
+    pub fn time_left_ms(&self, elapsed_ms: u128) -> Option<u128> {
+        (self.budget_ms != 0).then(|| u128::from(self.budget_ms).saturating_sub(elapsed_ms))
+    }
+
+    pub fn widest_budget(a: u32, b: u32) -> u32 {
+        if a == 0 || b == 0 {
+            0
+        } else {
+            a.max(b)
+        }
+    }
+
     pub fn tier(t: u8) -> Profile {
         // `qwen3-reranker:0.6b` does not exist in Ollama's registry — `ollama pull`
         // returns "file does not exist". The reranker degrades to input order on
@@ -493,6 +505,8 @@ pub struct Config {
     #[serde(default)]
     pub update: UpdateConfig,
     #[serde(default)]
+    pub budget_ms: TierBudgets,
+    #[serde(default)]
     pub backup: BackupConfig,
     #[serde(default)]
     pub prehook: crate::prehook::PrehookConfig,
@@ -706,6 +720,49 @@ pub struct UpdateConfig {
 impl Default for UpdateConfig {
     fn default() -> Self {
         UpdateConfig { check: true }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TierBudgets {
+    #[serde(default = "shipped_budget::<0>")]
+    pub instant: u32,
+    #[serde(default = "shipped_budget::<1>")]
+    pub fast: u32,
+    #[serde(default = "shipped_budget::<2>")]
+    pub balanced: u32,
+    #[serde(default = "shipped_budget::<3>")]
+    pub thorough: u32,
+    #[serde(default = "shipped_budget::<4>")]
+    pub exhaustive: u32,
+}
+
+fn shipped_budget<const TIER: u8>() -> u32 {
+    Profile::tier(TIER).budget_ms
+}
+
+impl Default for TierBudgets {
+    fn default() -> Self {
+        TierBudgets {
+            instant: shipped_budget::<0>(),
+            fast: shipped_budget::<1>(),
+            balanced: shipped_budget::<2>(),
+            thorough: shipped_budget::<3>(),
+            exhaustive: shipped_budget::<4>(),
+        }
+    }
+}
+
+impl TierBudgets {
+    pub fn for_tier(&self, name: &str) -> Option<u32> {
+        match name {
+            "instant" => Some(self.instant),
+            "fast" => Some(self.fast),
+            "balanced" => Some(self.balanced),
+            "thorough" => Some(self.thorough),
+            "exhaustive" => Some(self.exhaustive),
+            _ => None,
+        }
     }
 }
 
@@ -1042,6 +1099,7 @@ impl Default for Config {
             pdf: PdfConfig::default(),
             memory: MemoryConfig::default(),
             update: UpdateConfig::default(),
+            budget_ms: TierBudgets::default(),
             backup: BackupConfig::default(),
             prehook: crate::prehook::PrehookConfig::default(),
             projects: std::collections::BTreeMap::new(),
@@ -1140,7 +1198,15 @@ impl Config {
     }
 
     pub fn profile_for(&self, s: Surface) -> Profile {
-        Profile::tier(self.quality_for(s))
+        self.tier(self.quality_for(s))
+    }
+
+    pub fn tier(&self, t: u8) -> Profile {
+        let mut profile = Profile::tier(t);
+        if let Some(budget) = self.budget_ms.for_tier(profile.name) {
+            profile.budget_ms = budget;
+        }
+        profile
     }
 
     pub fn global_transcript_weight_is_shipped(&self) -> bool {
@@ -1276,6 +1342,65 @@ mod tests {
                 Profile::tier(tier).rerank.is_none(),
                 "tier {tier} must not enable LLM reranking"
             );
+        }
+    }
+
+    #[test]
+    fn a_tier_budget_override_changes_only_the_tier_it_names() {
+        let c: Config = toml::from_str("[budget_ms]\nexhaustive = 4321\n").unwrap();
+        assert_eq!(c.tier(4).budget_ms, 4321);
+        assert_eq!(c.tier(9).budget_ms, 4321);
+        for t in 0..=3 {
+            assert_eq!(c.tier(t), Profile::tier(t), "tier {t}");
+        }
+        let mut shipped = Profile::tier(4);
+        shipped.budget_ms = 4321;
+        assert_eq!(c.tier(4), shipped);
+    }
+
+    #[test]
+    fn a_surface_profile_carries_the_budget_override_of_its_tier() {
+        let c: Config =
+            toml::from_str("[mcp]\nquality = 4\n\n[budget_ms]\nexhaustive = 4321\nfast = 333\n")
+                .unwrap();
+        assert_eq!(c.profile_for(Surface::Mcp).budget_ms, 4321);
+        assert_eq!(c.profile_for(Surface::Hook).budget_ms, 333);
+        assert_eq!(Config::default().tier(4), Profile::tier(4));
+    }
+
+    #[test]
+    fn a_zero_budget_never_runs_out_of_time() {
+        let mut unlimited = Profile::tier(4);
+        unlimited.budget_ms = 0;
+        assert_eq!(unlimited.time_left_ms(u128::MAX), None);
+        let fast = Profile::tier(1);
+        assert_eq!(fast.time_left_ms(200), Some(20));
+        assert_eq!(fast.time_left_ms(220), Some(0));
+        assert_eq!(fast.time_left_ms(5000), Some(0));
+    }
+
+    #[test]
+    fn the_widest_of_two_budgets_treats_zero_as_unlimited() {
+        assert_eq!(Profile::widest_budget(220, 700), 700);
+        assert_eq!(Profile::widest_budget(0, 700), 0);
+        assert_eq!(Profile::widest_budget(220, 0), 0);
+    }
+
+    #[test]
+    fn a_zero_tier_budget_in_config_is_kept_as_zero() {
+        let c: Config = toml::from_str("[budget_ms]\nexhaustive = 0\n").unwrap();
+        assert_eq!(c.tier(4).budget_ms, 0);
+    }
+
+    #[test]
+    fn the_default_tier_budgets_are_the_shipped_ones() {
+        let c = Config::default();
+        for t in 0..=4 {
+            assert_eq!(c.tier(t), Profile::tier(t), "tier {t}");
+        }
+        let partial: Config = toml::from_str("[budget_ms]\nexhaustive = 0\n").unwrap();
+        for t in 0..=3 {
+            assert_eq!(partial.tier(t), Profile::tier(t), "tier {t}");
         }
     }
 

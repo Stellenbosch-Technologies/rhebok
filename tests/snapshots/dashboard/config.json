@@ -12,6 +12,13 @@
         "s3": null,
         "targets": []
       },
+      "budget_ms": {
+        "balanced": 320,
+        "exhaustive": 1600,
+        "fast": 220,
+        "instant": 150,
+        "thorough": 700
+      },
       "embed": {
         "batch": 32,
         "chunk_tokens": 512,
@@ -129,6 +136,13 @@
         "key_file": null,
         "s3": null,
         "targets": []
+      },
+      "budget_ms": {
+        "balanced": 320,
+        "exhaustive": 1600,
+        "fast": 220,
+        "instant": 150,
+        "thorough": 700
       },
       "embed": {
         "batch": 32,

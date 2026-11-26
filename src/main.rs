@@ -866,7 +866,7 @@ fn main() -> Result<()> {
         } => {
             let q = query.join(" ");
             let profile = quality
-                .map(Profile::tier)
+                .map(|t| cfg.tier(t))
                 .unwrap_or_else(|| cfg.profile_for(Surface::Mcp));
             // A search that cannot reach the index prints nothing on stdout —
             // stdout is the result channel and `--json` must stay parseable —

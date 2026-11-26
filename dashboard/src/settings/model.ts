@@ -133,7 +133,7 @@ export function sectionOf(path: string): Section {
   const head = path.split(".")[0];
   if (/^(hook|mcp)\.weights/.test(path) || head === "weights") return "Advanced";
   if (head === "sources" || head === "ignore" || head.startsWith("index_transcripts") || head === "index_codex_sessions") return "Sources";
-  if (head === "hook" || head === "mcp") return "Retrieval";
+  if (head === "hook" || head === "mcp" || head === "budget_ms") return "Retrieval";
   if (head === "embed" || head === "endpoint") return "Embedding";
   if (head === "memory") return "Memory";
   if (head === "pdf") return "Documents";
