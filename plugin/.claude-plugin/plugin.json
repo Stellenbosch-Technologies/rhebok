@@ -1,7 +1,7 @@
 {
   "name": "rhebok",
   "description": "Semantic search over your personal knowledge base — notes, papers, clippings, and past sessions — with automatic context injection. Needs the rhebok program, installed separately.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "author": {
     "name": "Stellenbosch Technologies",
     "url": "https://github.com/Stellenbosch-Technologies"
