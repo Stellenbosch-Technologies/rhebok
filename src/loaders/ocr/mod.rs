@@ -3,6 +3,8 @@ use crate::config::OcrEngineChoice;
 #[cfg(feature = "ocr")]
 mod engine;
 #[cfg(feature = "ocr")]
+mod external;
+#[cfg(feature = "ocr")]
 mod layout;
 #[cfg(feature = "ocr")]
 mod oar;
@@ -18,6 +20,8 @@ pub use layout::{page_text, with_unseen_lines};
 pub enum EngineKind {
     Vision,
     Oar,
+    Command,
+    Http,
 }
 
 impl EngineKind {
@@ -29,6 +33,8 @@ impl EngineKind {
         match choice {
             OcrEngineChoice::Vision => EngineKind::Vision,
             OcrEngineChoice::Oar => EngineKind::Oar,
+            OcrEngineChoice::Command => EngineKind::Command,
+            OcrEngineChoice::Http => EngineKind::Http,
             OcrEngineChoice::Auto if os == "macos" => EngineKind::Vision,
             OcrEngineChoice::Auto => EngineKind::Oar,
         }
@@ -42,6 +48,8 @@ impl EngineKind {
         match self {
             EngineKind::Vision => "Apple Vision",
             EngineKind::Oar => "oar-ocr",
+            EngineKind::Command => "your OCR command",
+            EngineKind::Http => "your OCR endpoint",
         }
     }
 }
@@ -82,6 +90,8 @@ mod tests {
     #[test]
     fn only_oar_needs_onnx_runtime() {
         assert!(EngineKind::Oar.needs_onnx_runtime());
-        assert!(!EngineKind::Vision.needs_onnx_runtime());
+        for kind in [EngineKind::Vision, EngineKind::Command, EngineKind::Http] {
+            assert!(!kind.needs_onnx_runtime(), "{kind:?}");
+        }
     }
 }

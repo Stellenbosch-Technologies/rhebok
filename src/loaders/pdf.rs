@@ -248,12 +248,38 @@ pub fn ocr_library_paths(cfg: &PdfConfig) -> Vec<(&'static str, Option<std::path
         .collect()
 }
 
-pub fn describe_ocr(mode: &str, engine: EngineKind, missing: &[&str]) -> String {
-    describe_ocr_on(mode, engine, missing, std::env::consts::OS)
+pub fn describe_ocr(mode: &str, cfg: &PdfConfig, missing: &[&str]) -> String {
+    describe_ocr_on(mode, cfg, missing, std::env::consts::OS)
 }
 
-fn describe_ocr_on(mode: &str, engine: EngineKind, missing: &[&str], os: &str) -> String {
+fn describe_ocr_on(mode: &str, cfg: &PdfConfig, missing: &[&str], os: &str) -> String {
+    let engine = EngineKind::for_choice_on(cfg.ocr_engine, os);
     let label = engine.label();
+    match engine {
+        EngineKind::Command => {
+            return match cfg.ocr_command.as_deref().and_then(|argv| argv.first()) {
+                Some(program) => {
+                    format!("{mode} with {label} `{program}`, run on each scanned page")
+                }
+                None => format!(
+                    "{mode} with {label}, but ocr_command is not set under [pdf]: text PDFs are \
+                     indexed as usual, scanned pages are skipped"
+                ),
+            }
+        }
+        EngineKind::Http => {
+            return match cfg.ocr_url.as_deref().and_then(endpoint_origin) {
+                Some(origin) => format!(
+                    "{mode} with {label} at {origin}; scanned pages are sent there as images"
+                ),
+                None => format!(
+                    "{mode} with {label}, but ocr_url is not set under [pdf] to an http:// or \
+                     https:// address: text PDFs are indexed as usual, scanned pages are skipped"
+                ),
+            }
+        }
+        EngineKind::Vision | EngineKind::Oar => {}
+    }
     if engine == EngineKind::Vision && os != "macos" {
         return format!(
             "{mode} with {label}, which is only available on macOS: text PDFs are indexed as \
@@ -301,12 +327,37 @@ fn disable_ocr(path: &Path, engine: EngineKind, err: &dyn std::fmt::Display) {
 
 #[cfg(feature = "ocr")]
 fn library_hint(engine: EngineKind) -> &'static str {
-    if engine.needs_onnx_runtime() {
+    if matches!(engine, EngineKind::Command | EngineKind::Http) {
+        "rhebok: check ocr_command or ocr_url under [pdf]; see \"Your own OCR engine\" in \
+         docs/configuration.md"
+    } else if engine.needs_onnx_runtime() {
         "rhebok: install ONNX Runtime, or set ORT_DYLIB_PATH (or `[pdf] ort_dylib_path` in \
          config); with `model_downloads = \"offline\"`, place the model files in `model_dir`"
     } else {
         "rhebok: Apple Vision needs macOS; set `ocr_engine = \"oar\"` under [pdf] elsewhere"
     }
+}
+
+fn endpoint_origin(url: &str) -> Option<String> {
+    let url = url::Url::parse(url.trim()).ok()?;
+    matches!(url.scheme(), "http" | "https").then(|| {
+        let host = url.host_str().unwrap_or_default();
+        match url.port() {
+            Some(port) => format!("{}://{host}:{port}", url.scheme()),
+            None => format!("{}://{host}", url.scheme()),
+        }
+    })
+}
+
+#[cfg(feature = "ocr")]
+fn ocr_token(engine: EngineKind) -> Option<String> {
+    if engine != EngineKind::Http {
+        return None;
+    }
+    crate::env_file::ocr_token(&crate::config::Config::config_path()).unwrap_or_else(|e| {
+        eprintln!("rhebok: the OCR token could not be read: {e:#}");
+        None
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -404,10 +455,14 @@ fn recognized(
         let read = match route {
             Route::Text => None,
             Route::Ocr | Route::TextWithOcr => match render(doc, &page, dpi) {
-                Some(image) => Some(crate::loaders::ocr::page_text(
-                    &engine.recognize(&image)?,
-                    image.width as f32,
-                )),
+                Some(image) => match engine.recognize(&image) {
+                    Ok(lines) => Some(crate::loaders::ocr::page_text(&lines, image.width as f32)),
+                    Err(e) if !e.spoils_the_run() => {
+                        eprintln!("rhebok: page {} could not be recognized: {e}", page.number);
+                        None
+                    }
+                    Err(e) => return Err(e),
+                },
                 None => {
                     eprintln!("rhebok: page {} could not be rendered for OCR", page.number);
                     None
@@ -578,6 +633,10 @@ impl PdfLoader {
             model_dir: cfg.model_dir.clone(),
             downloads: cfg.model_downloads,
             minimum_confidence: cfg.ocr_min_confidence,
+            command: cfg.ocr_command.clone(),
+            url: cfg.ocr_url.clone(),
+            token: ocr_token(engine),
+            timeout: std::time::Duration::from_secs(cfg.ocr_timeout_secs.max(1)),
         };
         let outcome = crate::loaders::ocr::engine_for(engine, &settings)
             .and_then(|ocr| recognized(&doc, pages, force, &ocr, cfg.dpi));
@@ -705,6 +764,54 @@ mod tests {
             );
         });
         assert!(latched);
+    }
+
+    #[cfg(feature = "ocr")]
+    fn command_engine(script: &str) -> PdfConfig {
+        PdfConfig {
+            ocr_engine: crate::config::OcrEngineChoice::Command,
+            ocr_command: Some(vec![
+                "sh".into(),
+                "-c".into(),
+                script.into(),
+                "{image}".into(),
+            ]),
+            ..PdfConfig::default()
+        }
+    }
+
+    #[cfg(feature = "ocr")]
+    #[test]
+    fn a_command_engine_reads_a_scanned_pdf_end_to_end() {
+        let cfg = command_engine("test -s \"$0\" && echo recognized by a command");
+        let doc =
+            PdfLoader::load_file_with(Path::new("tests/fixtures/corpus/scanned-plain.pdf"), &cfg)
+                .unwrap();
+        assert!(doc.text.contains("recognized by a command"), "{}", doc.text);
+        assert_eq!(doc.meta["pages"][0]["ocr"], true);
+    }
+
+    #[cfg(feature = "ocr")]
+    #[test]
+    fn a_command_that_fails_its_pages_leaves_ocr_on_for_the_run() {
+        let cfg = command_engine("echo no luck >&2; exit 1");
+        let latched = latched_after(|| {
+            let loaded = PdfLoader::load_file_reporting(
+                Path::new("tests/fixtures/corpus/scanned-six-pages.pdf"),
+                &cfg,
+            );
+            assert!(matches!(
+                loaded.as_ref().map_err(|e| e.downcast_ref::<PdfError>()),
+                Err(Some(PdfError::Scanned {
+                    ocr_attempted: true,
+                    ..
+                }))
+            ));
+        });
+        assert!(
+            !latched,
+            "a page the command cannot read must not turn OCR off"
+        );
     }
 
     #[test]
@@ -921,9 +1028,17 @@ mod tests {
         );
     }
 
+    fn with_engine(ocr_engine: crate::config::OcrEngineChoice) -> PdfConfig {
+        PdfConfig {
+            ocr_engine,
+            ..PdfConfig::default()
+        }
+    }
+
     #[test]
     fn missing_ocr_libraries_read_as_optional_not_as_a_failure() {
-        let line = describe_ocr_on("auto", EngineKind::Oar, &["onnxruntime"], "linux");
+        use crate::config::OcrEngineChoice::Oar;
+        let line = describe_ocr_on("auto", &with_engine(Oar), &["onnxruntime"], "linux");
         assert!(line.contains("optional"), "{line}");
         assert!(line.contains("onnxruntime not found"), "{line}");
         assert!(line.contains("install ONNX Runtime"), "{line}");
@@ -933,25 +1048,52 @@ mod tests {
             "{line}"
         );
         assert_eq!(
-            describe_ocr_on("auto", EngineKind::Oar, &[], "linux"),
+            describe_ocr_on("auto", &with_engine(Oar), &[], "linux"),
             "auto with oar-ocr (libraries found)"
         );
     }
 
     #[test]
     fn vision_needs_no_libraries_on_macos_and_is_unavailable_elsewhere() {
-        assert!(ocr_library_paths(&PdfConfig {
-            ocr_engine: crate::config::OcrEngineChoice::Vision,
-            ..PdfConfig::default()
-        })
-        .is_empty());
+        use crate::config::OcrEngineChoice::Vision;
+        assert!(ocr_library_paths(&with_engine(Vision)).is_empty());
         assert_eq!(
-            describe_ocr_on("auto", EngineKind::Vision, &[], "macos"),
+            describe_ocr_on("auto", &with_engine(Vision), &[], "macos"),
             "auto with Apple Vision (built into macOS)"
         );
-        let linux = describe_ocr_on("force", EngineKind::Vision, &[], "linux");
+        let linux = describe_ocr_on("force", &with_engine(Vision), &[], "linux");
         assert!(linux.contains("only available on macOS"), "{linux}");
         assert!(linux.contains("ocr_engine = \"oar\""), "{linux}");
+    }
+
+    #[test]
+    fn the_status_line_names_your_command_or_endpoint_and_never_a_token() {
+        use crate::config::OcrEngineChoice::{Command, Http};
+        let command = PdfConfig {
+            ocr_command: Some(vec!["tesseract".into(), "{image}".into(), "-".into()]),
+            ..with_engine(Command)
+        };
+        assert_eq!(
+            describe_ocr_on("auto", &command, &[], "linux"),
+            "auto with your OCR command `tesseract`, run on each scanned page"
+        );
+        let unset = describe_ocr_on("auto", &with_engine(Command), &[], "linux");
+        assert!(unset.contains("ocr_command is not set"), "{unset}");
+
+        let endpoint = PdfConfig {
+            ocr_url: Some("https://user:pw@ocr.example:8443/read?token=abc".into()),
+            ..with_engine(Http)
+        };
+        let line = describe_ocr_on("auto", &endpoint, &[], "macos");
+        assert_eq!(
+            line,
+            "auto with your OCR endpoint at https://ocr.example:8443; scanned pages are sent there as images"
+        );
+        let wrong = PdfConfig {
+            ocr_url: Some("ftp://ocr.example/".into()),
+            ..with_engine(Http)
+        };
+        assert!(describe_ocr_on("auto", &wrong, &[], "linux").contains("ocr_url is not set"));
     }
 
     #[test]

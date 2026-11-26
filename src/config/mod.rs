@@ -525,6 +525,8 @@ pub enum OcrEngineChoice {
     Auto,
     Vision,
     Oar,
+    Command,
+    Http,
 }
 
 /// Whether a missing OCR model may be fetched over the network.
@@ -576,10 +578,20 @@ pub struct PdfConfig {
     pub model_downloads: ModelDownloads,
     #[serde(default)]
     pub ort_dylib_path: Option<PathBuf>,
+    #[serde(default)]
+    pub ocr_command: Option<Vec<String>>,
+    #[serde(default)]
+    pub ocr_url: Option<String>,
+    #[serde(default = "default_ocr_timeout_secs")]
+    pub ocr_timeout_secs: u64,
 }
 
 fn default_ocr_min_confidence() -> f32 {
     0.5
+}
+
+fn default_ocr_timeout_secs() -> u64 {
+    120
 }
 
 fn default_pdf_dpi() -> f32 {
@@ -596,6 +608,9 @@ impl Default for PdfConfig {
             model_dir: None,
             model_downloads: ModelDownloads::default(),
             ort_dylib_path: None,
+            ocr_command: None,
+            ocr_url: None,
+            ocr_timeout_secs: default_ocr_timeout_secs(),
         }
     }
 }
@@ -1159,7 +1174,9 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::{concurrency_for_cores, Config, OcrEngineChoice, OcrMode, Profile, Surface};
+    use super::{
+        concurrency_for_cores, Config, OcrEngineChoice, OcrMode, PdfConfig, Profile, Surface,
+    };
 
     /// Measured warm floor for any search at all: ~40ms fixed + ~24ms embed.
     const WARM_FLOOR_MS: u32 = 65;
@@ -1512,12 +1529,35 @@ mod tests {
             ("auto", OcrEngineChoice::Auto),
             ("vision", OcrEngineChoice::Vision),
             ("oar", OcrEngineChoice::Oar),
+            ("command", OcrEngineChoice::Command),
+            ("http", OcrEngineChoice::Http),
         ] {
             let c: Config = toml::from_str(&format!("[pdf]\nocr_engine = \"{name}\"\n")).unwrap();
             assert_eq!(c.pdf.ocr_engine, engine, "{name}");
             assert_eq!(c.pdf.ocr, OcrMode::Auto, "{name}");
         }
         assert!(toml::from_str::<Config>("[pdf]\nocr_engine = \"tesseract\"\n").is_err());
+    }
+
+    #[test]
+    fn an_ocr_command_and_endpoint_read_from_config() {
+        let c: Config = toml::from_str(
+            r#"
+            [pdf]
+            ocr_engine = "command"
+            ocr_command = ["tesseract", "{image}", "-"]
+            ocr_url = "http://ocr.local:8080/read"
+            ocr_timeout_secs = 30
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            c.pdf.ocr_command,
+            Some(vec!["tesseract".into(), "{image}".into(), "-".into()])
+        );
+        assert_eq!(c.pdf.ocr_url.as_deref(), Some("http://ocr.local:8080/read"));
+        assert_eq!(c.pdf.ocr_timeout_secs, 30);
+        assert_eq!(PdfConfig::default().ocr_timeout_secs, 120);
     }
 
     #[test]

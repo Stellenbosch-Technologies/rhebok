@@ -61,7 +61,7 @@ mime = { version = "0.3", optional = true }
 http-body-util = { version = "0.1", optional = true }
 oar-ocr = { version = "0.11", default-features = false, features = ["simd", "auto-download"], optional = true }
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["load-dynamic", "std", "ndarray"], optional = true }
-image = { version = "0.25", default-features = false, optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6", optional = true }
