@@ -1,0 +1,2730 @@
+openapi: 3.1.0
+x-fern-explorer: false
+info:
+  title: rhebok dashboard API
+  version: 0.2.3
+  summary: The local HTTP API behind `rhebok dashboard`.
+  description: |
+    `rhebok dashboard` serves a single-page app and the JSON API it calls. The
+    API reads the index, runs searches, writes memories and `config.toml`,
+    connects coding agents, and starts index runs and updates. This page
+    documents that API so you can call it from a script on the same machine.
+
+    ## Reaching the dashboard
+
+    The dashboard binds to `127.0.0.1` only. By default the operating system
+    picks a free port when the dashboard starts, and the dashboard prints the
+    address it got, for example `rhebok dashboard: http://127.0.0.1:52817`.
+    Pass `--port N` to bind a fixed port, and `--no-open` to skip opening a
+    browser. There is no default port number.
+
+    ## No authentication
+
+    There is no token, key or session. Anything that can open a TCP
+    connection to `127.0.0.1` on the dashboard's port, and pass the header
+    checks below, can call every endpoint.
+
+    ## Rules every request must follow
+
+    - **Host.** Each request must carry exactly one `Host` header, and it must
+      be `127.0.0.1:<port>`, `localhost:<port>` or `[::1]:<port>`, where
+      `<port>` is the dashboard's own port (case-insensitive). When the port
+      is 80, the bare name without a port is also accepted. Any other value,
+      a missing `Host`, or two `Host` headers gets
+      `421 Misdirected Request`. This check runs first, on every request,
+      including requests for the app itself. It blocks DNS rebinding.
+    - **Origin, on POST only.** A POST with no `Origin` header is accepted.
+      A POST whose `Origin` is anything other than exactly
+      `http://127.0.0.1:<port>` or `http://localhost:<port>` gets
+      `409 Conflict` with `{"error": "refused: request origin is not this dashboard"}`.
+      `http://[::1]:<port>` is not accepted as an origin. This check runs
+      after the body is read and before the route is chosen, so it also
+      applies to POST paths that do not exist.
+    - **Body size.** A POST body may be at most 65,536 bytes, measured by
+      `Content-Length`. A larger declared length gets
+      `413 Payload Too Large` with `{"error": "request body too large"}`.
+      The server reads and discards up to 131,072 bytes of such a body
+      before it answers. If you send more than that, the server can close the
+      connection with bytes unread, and your client can see a reset instead
+      of the 413. The size check runs before the `Origin` check.
+    - **Request head size.** If the request line and headers grow past 64 KiB
+      before the blank line that ends them, the server closes the connection
+      without a response.
+    - **Read timeout.** Each connection has a 10-second read timeout. If the
+      head or the declared body does not arrive in time, the server closes the
+      connection without a response.
+    - **Methods.** Only `GET` and `POST` are served. Any other method, and a
+      POST to a path that has no POST route, gets `405 Method Not Allowed`
+      with `{"error": "GET only"}`. A GET to an unknown path under `/api/`
+      gets `404 Not Found` with `{"error": "unknown endpoint"}`.
+    - **Bodies.** POST bodies are JSON. The server does not read the
+      `Content-Type` header. Send a `Content-Length`: without one the body is
+      taken as empty.
+
+    ## Responses
+
+    Every response has `Connection: close`, so each connection carries one
+    request. API responses are `application/json`. An error body always has an
+    `error` string, and some errors add fields, as each operation lists.
+
+    Store reads open the index per request. When the store cannot be opened
+    (for example in the moment a re-index swaps the new index in), a read
+    answers `503 Service Unavailable`; the dashboard's own client retries a
+    503 once after 500 ms. When lbug's `vector` extension cannot be loaded,
+    the answer is `500` with `"stable": true`, because a retry cannot help.
+
+    Numbers that rhebok stores as 32-bit floats (relevance, thresholds,
+    weights in some payloads) are sent as their exact 64-bit widening, so a
+    value such as `0.66` can arrive as `0.6600000262260437`.
+  license:
+    name: See the rhebok repository
+    url: https://github.com/Stellenbosch-Technologies/rhebok
+security: []
+servers:
+  - url: http://127.0.0.1:{port}
+    description: |
+      The running dashboard. The port is chosen by the operating system at
+      start unless `rhebok dashboard --port N` sets it; the dashboard prints
+      its address when it starts.
+    variables:
+      port:
+        default: "7331"
+        description: |
+          The dashboard's port. `7331` is only an example (the one the security
+          guide uses with `--port 7331`); without `--port` the port is
+          OS-assigned and changes on every start.
+tags:
+  - name: Search
+    description: Run a query through the retrieval pipeline and see every stage.
+  - name: Index
+    description: Index counts, skipped files, index runs and their progress.
+  - name: Memories
+    description: List, save, edit and delete the lessons, facts and episodes rhebok remembers.
+  - name: Graph
+    description: The knowledge graph of documents, links, tags and entities, and one document's details.
+  - name: Config
+    description: Read and edit `config.toml` and the remote embedding endpoint.
+  - name: Agents
+    description: Connect coding agents (Claude Code, Codex, Claude Desktop, Cursor, Gemini) to rhebok.
+  - name: Install and health
+    description: Install checks and the embedding connection test.
+  - name: Updates
+    description: The installed version, release checks, self-update and restart.
+paths:
+  /api/search:
+    get:
+      tags: [Search]
+      operationId: search
+      summary: Search the index
+      description: |
+        Runs a query the way the prompt hook does, with the hook's threshold and
+        token budget, and returns what each retrieval stage found, the fused
+        list that cleared the gate, and which chunks would be injected. A
+        failure the user can act on (embedding unavailable, a pack that must be
+        rebuilt, a missing vector extension, an empty query) is a 200 with only
+        an `error` field.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: |
+            The query text. An empty or whitespace-only value returns
+            `{"error": "empty query"}`. If `q` is given more than once, the last one is used.
+          schema:
+            type: string
+          example: how do we ship a release
+        - name: tier
+          in: query
+          required: false
+          description: |
+            Quality tier to search with: 0 `instant`, 1 `fast`, 2 `balanced`,
+            3 `thorough`, 4 `exhaustive`. Values above 4 are treated as 4. A value
+            that is not an integer from 0 to 255 is ignored. Without it, the
+            hook's configured tier is used. If given more than once, the last one is used.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 255
+          example: 1
+      responses:
+        "200":
+          description: The search ran, or failed in a way that is reported in `error`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResult"
+              examples:
+                found:
+                  summary: A search that found and injected two chunks
+                  value:
+                    stages:
+                      - name: vector
+                        hits:
+                          - chunk_id: 3f9a1c0be47d2a5591c8e0f6a7b3d214:2
+                            doc_id: 3f9a1c0be47d2a5591c8e0f6a7b3d214
+                            title: How we ship
+                            heading: How we ship > Releases
+                            source_type: markdown
+                            relevance: 0.8412
+                            score: 0.0328
+                            excerpt: A release is a version bump merged to main; there is no tag step...
+                            memory_kind: null
+                      - name: bm25
+                        hits: []
+                      - name: fused
+                        hits:
+                          - chunk_id: 3f9a1c0be47d2a5591c8e0f6a7b3d214:2
+                            doc_id: 3f9a1c0be47d2a5591c8e0f6a7b3d214
+                            title: How we ship
+                            heading: How we ship > Releases
+                            source_type: markdown
+                            relevance: 0.8412
+                            score: 0.0328
+                            excerpt: A release is a version bump merged to main; there is no tag step...
+                            memory_kind: null
+                    fused:
+                      - chunk_id: 3f9a1c0be47d2a5591c8e0f6a7b3d214:2
+                        doc_id: 3f9a1c0be47d2a5591c8e0f6a7b3d214
+                        title: How we ship
+                        heading: How we ship > Releases
+                        source_type: markdown
+                        relevance: 0.8412
+                        score: 0.0328
+                        excerpt: A release is a version bump merged to main; there is no tag step...
+                        memory_kind: null
+                      - chunk_id: 9c04e7d1aa3b46f28e5d0c71b2f9a863:0
+                        doc_id: 9c04e7d1aa3b46f28e5d0c71b2f9a863
+                        title: Squash PRs, no prefixes
+                        heading: ""
+                        source_type: memory
+                        relevance: 0.7731
+                        score: 0.0161
+                        excerpt: One commit per pull request; squash before you open it.
+                        memory_kind: lesson
+                    threshold: 0.66
+                    injected:
+                      - 3f9a1c0be47d2a5591c8e0f6a7b3d214:2
+                      - 9c04e7d1aa3b46f28e5d0c71b2f9a863:0
+                    degraded: false
+                    bm25_unavailable: null
+                    vectors_unavailable: null
+                    memory_unavailable: null
+                    elapsed_ms: 94
+                embeddingDown:
+                  summary: Ollama is not reachable
+                  value:
+                    error: embedding unavailable
+                empty:
+                  summary: No query text
+                  value:
+                    error: empty query
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "503":
+          $ref: "#/components/responses/StoreUnavailable"
+  /api/stats:
+    get:
+      tags: [Index]
+      operationId: getStats
+      summary: Get index statistics
+      description: |
+        Returns document and chunk counts, counts by source type and by agent,
+        the embedding model, skipped files, the last `rhebok bench` report, the
+        hook and MCP tiers, the hook threshold, and memory counts by kind. A
+        machine that has never indexed answers zeros rather than an error.
+      responses:
+        "200":
+          description: The index statistics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Stats"
+              examples:
+                indexed:
+                  summary: An indexed machine
+                  value:
+                    documents: 641
+                    chunks: 34174
+                    by_source:
+                      markdown: 38
+                      pdf: 4
+                      transcript: 599
+                    sessions_by_agent:
+                      claude-code: 571
+                      codex: 28
+                    model: qwen3-embedding:0.6b
+                    skipped:
+                      - path: /Users/me/vault/scans/receipt.pdf
+                        kind: scanned
+                        detail: "`/Users/me/vault/scans/receipt.pdf` appears to be a scanned PDF with no reliable text layer; skipping (OCR ran and recovered no text)"
+                    skipped_ignored: 3
+                    bench:
+                      - tier: instant
+                        recall_at_5: 0.7
+                        p50_ms: 54
+                        p95_ms: 81
+                        absent: []
+                      - tier: fast
+                        recall_at_5: 0.9
+                        p50_ms: 101
+                        p95_ms: 162
+                        absent: []
+                    bench_provenance:
+                      golden_sha256: eb72714792970bd1c4a0f9d3e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4
+                      cases: 222
+                      documents: 641
+                      chunks: 34174
+                      memories: 12
+                      no_graph: false
+                      project: null
+                      keep_footprint: null
+                    bench_at: 1764115200
+                    tiers:
+                      hook: 1
+                      mcp: 3
+                    hook_threshold: 0.66
+                    memory:
+                      episode: 3
+                      fact: 4
+                      lesson: 5
+                fresh:
+                  summary: A machine that has never indexed
+                  value:
+                    documents: 0
+                    chunks: 0
+                    by_source: {}
+                    sessions_by_agent: {}
+                    model: null
+                    skipped: []
+                    skipped_ignored: 0
+                    bench: null
+                    bench_provenance: null
+                    bench_at: null
+                    tiers:
+                      hook: 1
+                      mcp: 3
+                    hook_threshold: 0.66
+                    memory: {}
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/VectorExtensionMissing"
+        "503":
+          $ref: "#/components/responses/StoreUnavailable"
+  /api/progress:
+    get:
+      tags: [Index]
+      operationId: getProgress
+      summary: Get index progress
+      description: |
+        Returns the progress of the index run that is writing now, or
+        `{"idle": true}` when no live index process is reporting progress.
+      responses:
+        "200":
+          description: The progress of a running index, or idle.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Progress"
+              examples:
+                running:
+                  value:
+                    pct: 42.5
+                    docs_done: 272
+                    docs_total: 641
+                    chunks: 14210
+                    bytes_done: 18874368
+                    bytes_total: 44408832
+                    elapsed_s: 96
+                    eta_s: 130
+                    pid: 48213
+                idle:
+                  value:
+                    idle: true
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+  /api/index:
+    get:
+      tags: [Index]
+      operationId: getIndexRun
+      summary: Get the last dashboard-started index run
+      description: |
+        Returns the record of the last index run the dashboard started, with
+        its exit status once it has finished. `run` is null when the dashboard
+        has never started one. A run whose process died before its exit was
+        recorded reads as finished with `ok` and `code` null.
+      responses:
+        "200":
+          description: The last run, or null.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndexRunView"
+              examples:
+                finished:
+                  value:
+                    run:
+                      pid: 48213
+                      reindex: false
+                      finished: true
+                      ok: true
+                      code: 0
+                      log: /Users/me/Library/Application Support/rhebok/db.log
+                none:
+                  value:
+                    run: null
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+    post:
+      tags: [Index]
+      operationId: startIndex
+      summary: Start an index run
+      description: |
+        Starts `rhebok index` (or `rhebok index --reindex`) as a child process
+        whose output goes to `db.log`, and returns at once. Poll
+        `GET /api/progress` and `GET /api/index` to follow it.
+      requestBody:
+        required: false
+        description: "Optional. An empty or whitespace-only body means `{\"reindex\": false}`."
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IndexRequest"
+            example:
+              reindex: false
+      responses:
+        "202":
+          description: The index process started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IndexStarted"
+              example:
+                started: true
+                pid: 48213
+                reindex: false
+        "400":
+          $ref: "#/components/responses/BodyNotJson"
+        "409":
+          description: |
+            An index is already running (`{"error": "an index is already running"}`),
+            or the request `Origin` is not this dashboard.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: an index is already running
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/CliMissing"
+  /api/ignore/preview:
+    get:
+      tags: [Index]
+      operationId: previewIgnore
+      summary: Preview an ignore pattern
+      description: |
+        Shows how many of the currently skipped files (those not already
+        ignored) an `ignore` entry would match, with up to five sample paths.
+        A pattern that does not parse is a 200 with `error` set.
+      parameters:
+        - name: pattern
+          in: query
+          required: true
+          description: |
+            The `ignore` entry to try. If `pattern` is given more than once,
+            the first one is used.
+          schema:
+            type: string
+          example: scans/**
+      responses:
+        "200":
+          description: The match count, or why the pattern is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IgnorePreview"
+              example:
+                error: null
+                matches: 2
+                of: 5
+                sample:
+                  - /Users/me/vault/scans/receipt.pdf
+                  - /Users/me/vault/scans/lease.pdf
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/VectorExtensionMissing"
+        "503":
+          $ref: "#/components/responses/StoreUnavailable"
+  /api/memories:
+    get:
+      tags: [Memories]
+      operationId: listMemories
+      summary: List memories
+      description: |
+        Lists every memory in the memory pack. When memory is disabled in
+        config, or the pack cannot be read, `memories` is empty and
+        `unavailable` says why, so an empty store and a broken one look different.
+      responses:
+        "200":
+          description: The memories, or why they cannot be listed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Memories"
+              examples:
+                listed:
+                  value:
+                    memories:
+                      - id: a41c09e2f7b3
+                        uri: memory://lesson/a41c09e2f7b3
+                        doc_id: 9c04e7d1aa3b46f28e5d0c71b2f9a863
+                        title: One commit per pull request
+                        text: One commit per pull request. Squash the branch before you open the PR, and again after review fixes land.
+                        facts:
+                          kind: lesson
+                          created: 1763251200
+                          origin: user
+                          confidence: 100
+                        project_name: null
+                      - id: 5d2e8b10c4fa
+                        uri: memory://fact/5d2e8b10c4fa
+                        doc_id: 1b7f3e9a0c2d4e6f8a1b3c5d7e9f0a2b
+                        title: The remote embedding endpoint needs a Bearer token
+                        text: The remote embedding endpoint needs a Bearer token; rhebok reads it from RHEBOK_EMBED_TOKEN.
+                        facts:
+                          kind: fact
+                          created: 1763337600
+                          project: /Users/me/code/rhebok
+                          origin: claude
+                          confidence: 90
+                        project_name: rhebok
+                    unavailable: null
+                disabled:
+                  value:
+                    memories: []
+                    unavailable: memory is disabled in config ([memory] enabled = false)
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+  /api/memory/reach:
+    get:
+      tags: [Memories]
+      operationId: getMemoryReach
+      summary: Show what a memory's text retrieves
+      description: |
+        Runs the memory's own text as a hook-tier search and lists the
+        documents (not other memories) that clear the hook threshold. A
+        missing id, an unknown id, a disabled or unreadable memory store, or an
+        embedding failure is a 200 with `error` set.
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: The memory's full id. It must match exactly; a prefix is not enough here.
+          schema:
+            type: string
+          example: a41c09e2f7b3
+      responses:
+        "200":
+          description: The documents the memory reaches, or why it could not be computed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryReach"
+              examples:
+                reached:
+                  value:
+                    reach:
+                      - doc_id: 3f9a1c0be47d2a5591c8e0f6a7b3d214
+                        title: How we ship
+                        uri: file:///Users/me/vault/70-engineering/how-we-ship.md
+                        relevance: 0.8125
+                unknown:
+                  value:
+                    error: no memory with id `zzz`
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/VectorExtensionMissing"
+        "503":
+          $ref: "#/components/responses/StoreUnavailable"
+  /api/memory/save:
+    post:
+      tags: [Memories]
+      operationId: saveMemory
+      summary: Create or edit a memory
+      description: |
+        Without `id`, creates a memory, and `outcome` is one of:
+
+        - `saved`: the memory was written.
+        - `replaced`: a lesson or fact of the same kind was similar enough to
+          count as a near-duplicate (`[memory] duplicate_similarity`). The new
+          memory was written and the old one deleted; `previous_title` names it.
+        - `duplicate`: nothing was written, and `id` is the memory that already
+          exists. This happens when the same text is already stored under the
+          same id, and when an episode has a near-duplicate episode, because
+          episodes are never replaced.
+
+        With `id`, edits that memory. A successful edit always answers
+        `replaced`, with the memory's id after the edit and its own old title
+        in `previous_title`. Tell an edit from a replaced near-duplicate by
+        whether you sent `id`. An edit that changes the kind or text changes
+        the id, because the id derives from both. If that new id belongs to a
+        different memory that already exists, nothing is written and the
+        answer is `duplicate` with that memory's id.
+
+        Writes are serialised inside the dashboard.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemorySaveRequest"
+            examples:
+              saved:
+                summary: Create a new memory
+                value:
+                  kind: lesson
+                  text: Run cargo clippy --all-targets before pushing; zero warnings is the bar.
+                  scope: global
+                  confidence: 100
+              replaced:
+                summary: Create a memory that replaces a near-duplicate
+                value:
+                  kind: lesson
+                  text: Run cargo clippy --all-targets before every push; zero warnings is the bar.
+                  scope: global
+                  confidence: 100
+              duplicate:
+                summary: Create a memory that already exists
+                value:
+                  kind: lesson
+                  text: One commit per pull request. Squash the branch before you open the PR, and again after review fixes land.
+                  scope: global
+                  confidence: 100
+              edited:
+                summary: Edit a memory
+                value:
+                  id: a41c09e2f7b3
+                  kind: lesson
+                  text: One commit per pull request. Squash the branch before you open the PR, again after review fixes land, and before you merge.
+                  scope: global
+                  confidence: 100
+      responses:
+        "200":
+          description: The outcome of the write.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemorySaveOutcome"
+              examples:
+                saved:
+                  summary: Create a new memory
+                  value:
+                    outcome: saved
+                    id: 7e1f0c3a9b2d
+                replaced:
+                  summary: Create a memory that replaces a near-duplicate
+                  value:
+                    outcome: replaced
+                    id: 3d8b5e21c6f4
+                    previous_title: Run clippy before you push
+                duplicate:
+                  summary: Create a memory that already exists
+                  value:
+                    outcome: duplicate
+                    id: a41c09e2f7b3
+                edited:
+                  summary: Edit a memory
+                  value:
+                    outcome: replaced
+                    id: c5902b7d1e8a
+                    previous_title: One commit per pull request
+        "400":
+          description: |
+            The body is not the expected JSON, `kind` is not `lesson`, `fact` or
+            `episode`, `confidence` is over 100, `id` is present but blank, or
+            the memory was rejected (for example its text is not 10 to 2,000
+            characters, or memory is disabled in config).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: kind `note` is not lesson, fact or episode
+        "404":
+          description: The `id` of an edit matches no memory, or matches more than one.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: |
+            Another rhebok process holds the memory store's lock, or the
+            request `Origin` is not this dashboard.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: the memory store is busy (another rhebok process is writing memories); try again
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "503":
+          description: Any other failure to write the memory, such as an embedding failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/memory/delete:
+    post:
+      tags: [Memories]
+      operationId: deleteMemory
+      summary: Delete a memory
+      description: |
+        Deletes the memory the id names and returns its full id and title.
+        The id may be a unique prefix of a memory id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemoryDeleteRequest"
+            example:
+              id: a41c09e2f7b3
+      responses:
+        "200":
+          description: The memory was deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryDeleteOutcome"
+              example:
+                id: a41c09e2f7b3
+                title: One commit per pull request
+        "400":
+          description: The body is not the expected JSON, or `id` is blank.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: a delete must name the id it is deleting
+        "404":
+          description: The id matches no memory, or matches more than one.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: |
+            Another rhebok process holds the memory store's lock, or the
+            request `Origin` is not this dashboard.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "503":
+          description: Memory is disabled in config, or any other failure to delete the memory.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/graph:
+    get:
+      tags: [Graph]
+      operationId: getGraph
+      summary: Get the knowledge graph
+      description: |
+        Returns every document as a node, with entities, tags and edges. When
+        memory is enabled, memories are added as nodes of `source_type`
+        `memory`, with `distilled-from` edges to their session and `scoped-to`
+        edges to a `project:<path>` node. A machine that has never indexed
+        returns an empty graph (plus any memories).
+      responses:
+        "200":
+          description: The graph.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Graph"
+              example:
+                nodes:
+                  - id: 3f9a1c0be47d2a5591c8e0f6a7b3d214
+                    title: How we ship
+                    source_type: markdown
+                    chunks: 6
+                    inbound: 4
+                  - id: 7a2c5e8f1b4d4a90c3e6f9a2b5d8e1f4
+                    title: Session 2026-11-18
+                    source_type: transcript
+                    chunks: 41
+                    inbound: 0
+                    agent: claude-code
+                  - id: 9c04e7d1aa3b46f28e5d0c71b2f9a863
+                    title: One commit per pull request
+                    source_type: memory
+                    chunks: 1
+                    inbound: 0
+                    memory_kind: lesson
+                    memory_id: a41c09e2f7b3
+                  - id: project:/Users/me/code/rhebok
+                    title: /Users/me/code/rhebok
+                    source_type: project
+                    chunks: 0
+                    inbound: 0
+                entities:
+                  - id: project:rhebok
+                    name: rhebok
+                    kind: project
+                tags:
+                  - engineering
+                edges:
+                  - from: 5e8d2a7c0f3b4e1d9a6c8b2f4e0d7a13
+                    to: 3f9a1c0be47d2a5591c8e0f6a7b3d214
+                    kind: wikilink
+                  - from: 3f9a1c0be47d2a5591c8e0f6a7b3d214
+                    to: engineering
+                    kind: tagged
+                  - from: 7a2c5e8f1b4d4a90c3e6f9a2b5d8e1f4
+                    to: project:rhebok
+                    kind: mentions
+                  - from: 9c04e7d1aa3b46f28e5d0c71b2f9a863
+                    to: project:/Users/me/code/rhebok
+                    kind: scoped-to
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/VectorExtensionMissing"
+        "503":
+          $ref: "#/components/responses/StoreUnavailable"
+  /api/document:
+    get:
+      tags: [Graph]
+      operationId: getDocument
+      summary: Get one document's details
+      description: |
+        Returns the facts the graph and search panels show for one document:
+        its URI, title, source type, index time, chunk and inbound-link counts,
+        and its status and lifecycle. A blank or unknown id is a 200 with only
+        an `error` field, so check `error` first.
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: The document id (a node `id` from `/api/graph`, or a hit's `doc_id`).
+          schema:
+            type: string
+          example: 3f9a1c0be47d2a5591c8e0f6a7b3d214
+      responses:
+        "200":
+          description: The document, or why there is none.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentResult"
+              examples:
+                found:
+                  value:
+                    id: 3f9a1c0be47d2a5591c8e0f6a7b3d214
+                    uri: file:///Users/me/vault/70-engineering/how-we-ship.md
+                    title: How we ship
+                    source_type: markdown
+                    indexed_at: 1764028800
+                    chunks: 6
+                    inbound: 4
+                    status: accepted
+                    lifecycle: Current
+                unknown:
+                  value:
+                    error: unknown document
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/VectorExtensionMissing"
+        "503":
+          $ref: "#/components/responses/StoreUnavailable"
+  /api/config:
+    get:
+      tags: [Config]
+      operationId: getConfig
+      summary: Read the config
+      description: |
+        Returns `config.toml` three ways (what the file sets, what rhebok runs
+        with, and the defaults), its etag, its problems, whether each secret is
+        set, which environment variables override the remote embedding
+        endpoint, and the embedding models the dashboard offers. Secret values
+        are never returned.
+      responses:
+        "200":
+          description: The config state. The example trims `effective` and `defaults` to a few keys; the real objects hold the whole config.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigView"
+              example:
+                path: /Users/me/Library/Application Support/rhebok/config.toml
+                exists: true
+                etag: 9b1d2c3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c
+                effective:
+                  index_transcripts: true
+                  sources:
+                    - /Users/me/vault
+                  hook:
+                    quality: null
+                    threshold: 0.66
+                    max_tokens: 1500
+                  embed:
+                    model: qwen3-embedding:0.6b
+                    dimensions: 512
+                    ollama_url: http://localhost:11434
+                surface_weights:
+                  hook:
+                    markdown: 1
+                    pdf: 1
+                    web: 1
+                    transcript: 0.45
+                    memory: 1
+                    authority: 0
+                    current: 1
+                    investigating: 1
+                    proposed: 1
+                    superseded: 0.88
+                    decay:
+                      enabled: false
+                      grace_days: 90
+                      half_life_days: 100
+                      floor: 0.1
+                  mcp:
+                    markdown: 1
+                    pdf: 1
+                    web: 1
+                    transcript: 0.85
+                    memory: 1
+                    authority: 0
+                    current: 1
+                    investigating: 1
+                    proposed: 1
+                    superseded: 0.88
+                    decay:
+                      enabled: false
+                      grace_days: 90
+                      half_life_days: 100
+                      floor: 0.1
+                file:
+                  sources:
+                    - /Users/me/vault
+                defaults:
+                  index_transcripts: true
+                  sources: []
+                errors: []
+                secrets:
+                  embed.token: unset
+                  pdf.ocr_token: unset
+                  backup.key: unset
+                  backup.drive_token: unset
+                env_overrides: []
+                embed_models:
+                  - id: qwen3
+                    label: Qwen3-Embedding 0.6B
+                    model: qwen3-embedding:0.6b
+                    dimensions: 512
+                    hook_threshold: 0.66
+                    mcp_threshold: 0.55
+                    size: about 640 MB
+                    min_ollama: null
+                    summary: the default; runs on any recent Ollama
+                  - id: gemma
+                    label: EmbeddingGemma 2 (270M, bf16)
+                    model: embeddinggemma-2:270m-bf16-text
+                    dimensions: 512
+                    hook_threshold: 0.82
+                    mcp_threshold: 0.68
+                    size: about 575 MB
+                    min_ollama: 0.40.0
+                    summary: about 10% faster per query, same recall; needs Ollama 0.40 or newer
+                endpoint:
+                  backend: ollama
+                  url: null
+                  model: null
+                  error: null
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/VectorExtensionMissing"
+        "503":
+          description: The config file could not be read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [Config]
+      operationId: saveConfig
+      summary: Save config changes
+      description: |
+        Applies a patch of dotted keys to `config.toml` and returns the new
+        config state. Comments and key order in the file survive. Send the
+        `etag` from the last `GET /api/config`; if the file changed since, the
+        save is refused with the current etag. The save is also refused if it
+        would add a problem the file did not already have. `pdf.ocr_command`
+        cannot be set, changed or removed from the dashboard.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigSaveRequest"
+            example:
+              etag: 9b1d2c3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c
+              set:
+                hook.threshold: 0.68
+                sources:
+                  - /Users/me/vault
+                  - /Users/me/papers
+              unset:
+                - mcp.max_tokens
+      responses:
+        "200":
+          description: Saved. The body is the new config state, as `GET /api/config` returns it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigView"
+        "400":
+          $ref: "#/components/responses/BodyNotJson"
+        "409":
+          description: |
+            The file changed since `etag` was read (the body carries the
+            current `etag`), or the request `Origin` is not this dashboard
+            (the body has only `error`).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ConfigConflictError"
+                  - $ref: "#/components/schemas/Error"
+              example:
+                error: the config file changed since it was read; reload it and make the change again
+                etag: 4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/config/check:
+    post:
+      tags: [Config]
+      operationId: checkConfig
+      summary: Check config changes without saving
+      description: |
+        Applies a patch to a copy of `config.toml` in memory and reports every
+        problem in the result, and the subset a save would refuse. Nothing is
+        written.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigCheckRequest"
+            example:
+              set:
+                hook.threshold: 1.4
+      responses:
+        "200":
+          description: The problems the patched file would have.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigChecked"
+              example:
+                errors:
+                  - path: hook.threshold
+                    message: must be between 0 and 1
+                    line: 4
+                blocking:
+                  - path: hook.threshold
+                    message: must be between 0 and 1
+                    line: 4
+        "400":
+          $ref: "#/components/responses/BodyNotJson"
+        "409":
+          $ref: "#/components/responses/OriginRefused"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/config/embed:
+    post:
+      tags: [Config]
+      operationId: setEmbedEndpoint
+      summary: Set the remote embedding endpoint
+      description: |
+        Writes `RHEBOK_EMBED_URL`, `RHEBOK_EMBED_MODEL` and `RHEBOK_EMBED_TOKEN`
+        to the `env` file beside `config.toml` and returns the new config
+        state. A field you leave out is not changed; `null` or a blank string
+        removes it. While a URL is in effect, a model and a token must also be
+        in effect. A value set in the process environment wins over the file.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmbedEndpointRequest"
+            examples:
+              set:
+                value:
+                  url: http://192.168.1.20:1234
+                  model: text-embedding-qwen3-embedding-0.6b
+                  token: lm-studio-token
+              clear:
+                value:
+                  url: null
+                  model: null
+                  token: null
+      responses:
+        "200":
+          description: Saved. The body is the new config state, as `GET /api/config` returns it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigView"
+        "400":
+          $ref: "#/components/responses/BodyNotJson"
+        "409":
+          $ref: "#/components/responses/OriginRefused"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/agents:
+    get:
+      tags: [Agents]
+      operationId: listAgents
+      summary: List coding agents
+      description: |
+        Probes each coding agent rhebok supports and returns whether it is
+        installed, whether rhebok is connected to it, what a connection gives
+        it, and config snippets for any other MCP client.
+      responses:
+        "200":
+          description: Every supported agent and the generic snippets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentList"
+              example:
+                agents:
+                  - id: claude-code
+                    name: Claude Code
+                    detected:
+                      installed: true
+                      version: 2.1.0 (Claude Code)
+                      config_path: /Users/me/Library/Application Support/rhebok/plugin
+                    status:
+                      state: connected
+                    capabilities:
+                      mcp: true
+                      prompt_hook: true
+                      session_hook: true
+                      transcripts: true
+                      instructions: false
+                    snippet: |
+                      claude plugin marketplace add "/Users/me/Library/Application Support/rhebok/plugin"
+                      claude plugin install rhebok@rhebok
+                  - id: codex
+                    name: Codex
+                    detected:
+                      installed: true
+                      version: codex-cli 0.157.1
+                      config_path: /Users/me/.codex/config.toml
+                    status:
+                      state: stale
+                      reason: "the `rhebok` server runs /opt/homebrew/bin/rhebok, not /Users/me/Library/Application Support/rhebok/bin/rhebok"
+                    capabilities:
+                      mcp: true
+                      prompt_hook: true
+                      session_hook: false
+                      transcripts: true
+                      instructions: true
+                    snippet: |
+                      [mcp_servers.rhebok]
+                      command = "/Users/me/Library/Application Support/rhebok/bin/rhebok"
+                      args = ["mcp"]
+                    instructions: false
+                snippets:
+                  mcp_json: |
+                    {
+                      "mcpServers": {
+                        "rhebok": {
+                          "command": "/Users/me/Library/Application Support/rhebok/bin/rhebok",
+                          "args": [
+                            "mcp"
+                          ]
+                        }
+                      }
+                    }
+                  codex_toml: |
+                    [mcp_servers.rhebok]
+                    command = "/Users/me/Library/Application Support/rhebok/bin/rhebok"
+                    args = ["mcp"]
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+  /api/agents/connect:
+    post:
+      tags: [Agents]
+      operationId: connectAgent
+      summary: Connect an agent
+      description: |
+        Writes rhebok's entries into the agent's config files, the same as
+        `rhebok connect`, and returns the agent's new state with the files it
+        wrote, the backups it kept and any step left for you. A config file
+        rhebok cannot parse is refused and left unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRequest"
+            example:
+              id: codex
+              instructions: true
+      responses:
+        "200":
+          description: Connected (or already connected, in which case nothing is written).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentChanged"
+        "400":
+          $ref: "#/components/responses/AgentBadRequest"
+        "404":
+          $ref: "#/components/responses/AgentUnknown"
+        "409":
+          $ref: "#/components/responses/AgentConflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/AgentFailed"
+  /api/agents/disconnect:
+    post:
+      tags: [Agents]
+      operationId: disconnectAgent
+      summary: Disconnect an agent
+      description: |
+        Removes rhebok's own entries from the agent's config files and returns
+        the agent's new state with the files it changed. `instructions` is
+        accepted and ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentRequest"
+            example:
+              id: cursor
+      responses:
+        "200":
+          description: Disconnected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentChanged"
+        "400":
+          $ref: "#/components/responses/AgentBadRequest"
+        "404":
+          $ref: "#/components/responses/AgentUnknown"
+        "409":
+          $ref: "#/components/responses/AgentConflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/AgentFailed"
+  /api/install:
+    get:
+      tags: [Install and health]
+      operationId: getInstall
+      summary: Get install checks
+      description: |
+        Runs the same install checks as `rhebok status` (binary, plugin,
+        marketplace, registration, PATH and so on), each failed one with a
+        fix, and adds the config file's problems and the embedding target. It
+        does not contact the embedder.
+      responses:
+        "200":
+          description: The install state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstallView"
+              example:
+                root: /Users/me/Library/Application Support/rhebok
+                binary: /Users/me/Library/Application Support/rhebok/bin/rhebok
+                exe: /Users/me/Library/Application Support/rhebok/bin/rhebok
+                checks:
+                  - name: binary
+                    ok: true
+                    detail: /Users/me/Library/Application Support/rhebok/bin/rhebok
+                    fix: null
+                  - name: plugin
+                    ok: true
+                    detail: /Users/me/Library/Application Support/rhebok/plugin (0.2.3)
+                    fix: null
+                  - name: marketplace
+                    ok: true
+                    detail: rhebok -> plugin directory
+                    fix: null
+                  - name: registration
+                    ok: false
+                    detail: rhebok@rhebok is not installed in Claude Code
+                    fix:
+                      kind: connect
+                      agent: claude-code
+                  - name: path
+                    ok: false
+                    detail: "`rhebok` is not on PATH"
+                    fix:
+                      kind: command
+                      command: '"/Users/me/Library/Application Support/rhebok/bin/rhebok" install'
+                config:
+                  path: /Users/me/Library/Application Support/rhebok/config.toml
+                  errors: []
+                embed:
+                  backend: ollama
+                  url: http://localhost:11434
+                  model: qwen3-embedding:0.6b
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /api/embed/test:
+    post:
+      tags: [Install and health]
+      operationId: testEmbedding
+      summary: Test the embedding connection
+      description: |
+        Embeds a short fixed text with the configured backend (local Ollama or
+        the remote endpoint) and reports whether it worked, how long it took,
+        and the vector's dimensions. A failure is a 200 with `ok: false`. Any
+        request body is ignored.
+      responses:
+        "200":
+          description: The result of the test.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmbedTest"
+              examples:
+                ok:
+                  value:
+                    ok: true
+                    latency_ms: 38
+                    dimensions: 512
+                    backend: ollama
+                    url: http://localhost:11434
+                    model: qwen3-embedding:0.6b
+                failed:
+                  value:
+                    ok: false
+                    latency_ms: 2
+                    dimensions: null
+                    backend: ollama
+                    url: http://localhost:11434
+                    model: qwen3-embedding:0.6b
+                    error: "error sending request for url (http://localhost:11434/api/embed): connection refused"
+        "409":
+          $ref: "#/components/responses/OriginRefused"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+  /api/version:
+    get:
+      tags: [Updates]
+      operationId: getVersion
+      summary: Get version and update state
+      description: |
+        Returns the installed version, the result of the last release check,
+        whether a newer release exists, and the state of an update that is
+        running or has finished. With `refresh=1` it checks for a release first,
+        which contacts GitHub.
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          description: Send exactly `refresh=1` to run a release check before answering. Any other value does nothing.
+          schema:
+            type: string
+            enum: ["1"]
+      responses:
+        "200":
+          description: The version state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Version"
+              example:
+                pid: 50112
+                installed: 0.2.3
+                latest: 0.2.4
+                url: https://github.com/Stellenbosch-Technologies/rhebok/releases/tag/v0.2.4
+                checked_at: 1764115200
+                error: null
+                no_release: false
+                update_available: 0.2.4
+                update: null
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+  /api/update:
+    post:
+      tags: [Updates]
+      operationId: startUpdate
+      summary: Start a self-update
+      description: |
+        Starts `rhebok update --yes --quiet` as a child process whose output
+        goes to `db.log`, and returns at once. Follow it with
+        `GET /api/version`, whose `update` field carries the phase. Any request
+        body is ignored.
+      responses:
+        "202":
+          description: The update process started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateStarted"
+              example:
+                started: true
+                pid: 50240
+        "409":
+          description: |
+            An index is running, an update is already running, or the request
+            `Origin` is not this dashboard.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: an index is running; wait for it to finish
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/CliMissing"
+  /api/restart:
+    post:
+      tags: [Updates]
+      operationId: restart
+      summary: Restart rhebok
+      description: |
+        Starts `rhebok restart` with the installed binary in its own process
+        group, which stops the running dashboard and any running index and
+        starts them again. Returns at once with the new child's pid and this
+        dashboard's pid. Any request body is ignored.
+      responses:
+        "202":
+          description: The restart process started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestartStarted"
+              example:
+                started: true
+                pid: 50301
+                dashboard_pid: 50112
+        "409":
+          description: An update is running, or the request `Origin` is not this dashboard.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: an update is running (downloading); restart once it finishes
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "421":
+          $ref: "#/components/responses/MisdirectedRequest"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/CliMissing"
+components:
+  responses:
+    MisdirectedRequest:
+      description: The `Host` header does not name this dashboard (see the rules at the top of this page).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "refused: the Host header does not name this dashboard"
+    OriginRefused:
+      description: The request `Origin` is not this dashboard.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "refused: request origin is not this dashboard"
+    PayloadTooLarge:
+      description: The declared `Content-Length` is over 65,536 bytes.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: request body too large
+    BodyNotJson:
+      description: The body is not the JSON this route expects (it does not parse, or a required field is missing or has the wrong type).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: body is not the expected JSON
+    StoreUnavailable:
+      description: The index store could not be opened or read right now. A retry can succeed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: database is locked
+    VectorExtensionMissing:
+      description: lbug's `vector` extension could not be loaded. This is a stable state, so `stable` is true and a retry will not help.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/StableError"
+    Internal:
+      description: An unexpected server-side failure, such as failing to find the running binary, spawn a process, or read or write a file.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    CliMissing:
+      description: The rhebok binary to run is not an executable file. `fix` says how to repair it.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/CliMissingError"
+          example:
+            error: the rhebok CLI was not found
+            fix: '"/Users/me/Downloads/rhebok" install'
+    Unprocessable:
+      description: The change was not saved because it would leave the config with a new problem. `errors` lists each problem.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/UnprocessableError"
+          example:
+            error: "not saved: hook.threshold: must be between 0 and 1"
+            errors:
+              - path: hook.threshold
+                message: must be between 0 and 1
+                line: 4
+    AgentBadRequest:
+      description: |
+        The body is not valid JSON for this route, `id` is blank, or the agent
+        refused an option. A body or blank-id error has only `error`; an agent
+        refusal also has `unparseable: false`.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/AgentRefusalError"
+              - $ref: "#/components/schemas/Error"
+          example:
+            error: no agent id given
+    AgentUnknown:
+      description: No supported agent has that id.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AgentRefusalError"
+    AgentConflict:
+      description: |
+        The agent cannot be changed now (`unparseable: false`), one of its
+        config files exists but does not parse and was left unchanged
+        (`unparseable: true`), or the request `Origin` is not this dashboard
+        (only `error`).
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: "#/components/schemas/AgentRefusalError"
+              - $ref: "#/components/schemas/Error"
+    AgentFailed:
+      description: The connect or disconnect failed for another reason.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AgentRefusalError"
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: What went wrong, in plain words.
+    StableError:
+      type: object
+      required: [error, stable]
+      properties:
+        error:
+          type: string
+          description: The message, which names the extension directory.
+        stable:
+          type: boolean
+          const: true
+          description: Always true. The state will not clear on retry.
+    CliMissingError:
+      type: object
+      required: [error, fix]
+      properties:
+        error:
+          type: string
+          const: the rhebok CLI was not found
+        fix:
+          type: string
+          description: A command or instruction that repairs the install. Can be empty.
+    ConfigConflictError:
+      type: object
+      required: [error, etag]
+      properties:
+        error:
+          type: string
+        etag:
+          type: string
+          description: The etag of the file as it is now. Reload with `GET /api/config` before you try again.
+    UnprocessableError:
+      type: object
+      required: [error, errors]
+      properties:
+        error:
+          type: string
+          description: '"not saved: " followed by every problem, separated by "; ".'
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+    AgentRefusalError:
+      type: object
+      required: [error, unparseable]
+      properties:
+        error:
+          type: string
+        unparseable:
+          type: boolean
+          description: True when a config file exists but could not be parsed, so rhebok left it unchanged.
+    FieldError:
+      type: object
+      description: One problem with `config.toml` or with a requested change.
+      required: [path, message, line]
+      properties:
+        path:
+          type: string
+          description: The dotted key (`hook.threshold`), or `""` for a syntax error.
+        message:
+          type: string
+        line:
+          type: [integer, "null"]
+          description: The 1-based line in `config.toml`, or null when the problem has no single line.
+    SourceType:
+      type: string
+      description: The kind of source a document came from. Graph nodes also use `project` for project nodes.
+      examples: [markdown, pdf, web, transcript, memory]
+    SessionAgent:
+      type: string
+      description: The coding agent a session transcript came from.
+      enum: [claude-code, codex]
+    HitSummary:
+      type: object
+      required: [chunk_id, doc_id, title, heading, source_type, relevance, score, excerpt, memory_kind]
+      properties:
+        chunk_id:
+          type: string
+          description: "`<doc_id>:<ordinal>`."
+        doc_id:
+          type: string
+        title:
+          type: string
+        heading:
+          type: string
+          description: The chunk's heading path.
+        source_type:
+          $ref: "#/components/schemas/SourceType"
+        relevance:
+          type: number
+          description: A 0-1 cosine-derived value. It drives the injection gate and the final order.
+        score:
+          type: number
+          description: The fusion rank value. It only orders candidates and is not on the same scale as `relevance`.
+        excerpt:
+          type: string
+        memory_kind:
+          type: [string, "null"]
+          description: For a memory hit, `lesson`, `fact` or `episode`; otherwise null.
+    StageTrace:
+      type: object
+      required: [name, hits]
+      properties:
+        name:
+          type: string
+          description: The stage, for example `vector`, `bm25`, `graph` or `fused`. A stage that did not run is not listed.
+        hits:
+          type: array
+          items:
+            $ref: "#/components/schemas/HitSummary"
+    SearchExplain:
+      type: object
+      required: [stages, fused, threshold, injected, degraded, bm25_unavailable, vectors_unavailable, memory_unavailable, elapsed_ms]
+      properties:
+        stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/StageTrace"
+        fused:
+          type: array
+          description: Every hit that cleared the relevance gate and survived diversity selection.
+          items:
+            $ref: "#/components/schemas/HitSummary"
+        threshold:
+          type: number
+          description: The relevance gate the hook uses.
+        injected:
+          type: array
+          description: The chunk ids of the leading hits in `fused` that fit the hook's token budget, which is what the hook would put in the prompt.
+          items:
+            type: string
+        degraded:
+          type: boolean
+          description: True when the tier's time budget forced a stage to be skipped.
+        bm25_unavailable:
+          type: [string, "null"]
+          description: Why keyword search could not run, or null.
+        vectors_unavailable:
+          type: [string, "null"]
+          description: Why vector search could not run, or null.
+        memory_unavailable:
+          type: [string, "null"]
+          description: Why the memory pack could not be searched, or null.
+        elapsed_ms:
+          type: integer
+          description: Pipeline time in milliseconds.
+    SearchFailed:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: |
+            `empty query`, `embedding unavailable`, a pack refusal that names the
+            command to repair it, or the missing-vector-extension message.
+    SearchResult:
+      oneOf:
+        - $ref: "#/components/schemas/SearchExplain"
+        - $ref: "#/components/schemas/SearchFailed"
+    SkipKind:
+      type: string
+      enum: [settling, empty, unreadable, scanned, failed]
+    IoCode:
+      type: object
+      required: [kind, os_error]
+      properties:
+        kind:
+          type: string
+          description: The I/O error kind, for example `PermissionDenied`.
+        os_error:
+          type: [integer, "null"]
+    Skip:
+      type: object
+      description: A file the last index run did not index.
+      required: [path, kind, detail]
+      properties:
+        path:
+          type: string
+        kind:
+          $ref: "#/components/schemas/SkipKind"
+        detail:
+          type: string
+        io:
+          $ref: "#/components/schemas/IoCode"
+    AbsentRow:
+      type: object
+      required: [query, uri, injected, rank]
+      properties:
+        query:
+          type: string
+        uri:
+          type: string
+        injected:
+          type: boolean
+        rank:
+          type: [integer, "null"]
+    BenchTier:
+      type: object
+      description: One row of the last `rhebok bench` report.
+      required: [tier, recall_at_5, p50_ms, p95_ms, absent]
+      properties:
+        tier:
+          type: string
+          examples: [instant, fast, balanced, thorough, exhaustive]
+        recall_at_5:
+          type: number
+        p50_ms:
+          type: integer
+        p95_ms:
+          type: integer
+        absent:
+          type: array
+          items:
+            $ref: "#/components/schemas/AbsentRow"
+    BenchProvenance:
+      type: object
+      description: What the last bench run measured against, so two runs can be compared.
+      required: [golden_sha256, cases, documents, chunks, memories, no_graph, project, keep_footprint]
+      properties:
+        golden_sha256:
+          type: string
+        cases:
+          type: integer
+        documents:
+          type: [integer, "null"]
+        chunks:
+          type: [integer, "null"]
+        memories:
+          type: [integer, "null"]
+        no_graph:
+          type: [boolean, "null"]
+        project:
+          type: [string, "null"]
+        keep_footprint:
+          type: [boolean, "null"]
+    Stats:
+      type: object
+      required: [documents, chunks, by_source, sessions_by_agent, model, skipped, skipped_ignored, bench, bench_provenance, bench_at, tiers, hook_threshold, memory]
+      properties:
+        documents:
+          type: integer
+        chunks:
+          type: integer
+        by_source:
+          type: object
+          description: Document count per source type.
+          additionalProperties:
+            type: integer
+        sessions_by_agent:
+          type: object
+          description: Indexed session count per agent id (`claude-code`, `codex`).
+          additionalProperties:
+            type: integer
+        model:
+          type: [string, "null"]
+          description: The embedding model the index was built with, or null.
+        skipped:
+          type: array
+          description: Skipped files, without the ones the `ignore` list already covers.
+          items:
+            $ref: "#/components/schemas/Skip"
+        skipped_ignored:
+          type: integer
+          description: How many skipped files the `ignore` list covers.
+        bench:
+          type: [array, "null"]
+          items:
+            $ref: "#/components/schemas/BenchTier"
+        bench_provenance:
+          oneOf:
+            - $ref: "#/components/schemas/BenchProvenance"
+            - type: "null"
+        bench_at:
+          type: [integer, "null"]
+          description: Unix seconds when the bench report was written.
+        tiers:
+          type: object
+          required: [hook, mcp]
+          properties:
+            hook:
+              type: integer
+              description: The quality tier (0-4) the prompt hook uses.
+            mcp:
+              type: integer
+              description: The quality tier (0-4) MCP search uses.
+        hook_threshold:
+          type: number
+        memory:
+          type: object
+          description: Memory count per kind (`lesson`, `fact`, `episode`).
+          additionalProperties:
+            type: integer
+    RunningProgress:
+      type: object
+      required: [pct, docs_done, docs_total, chunks, bytes_done, bytes_total, elapsed_s, eta_s, pid]
+      properties:
+        pct:
+          type: number
+        docs_done:
+          type: integer
+        docs_total:
+          type: integer
+        chunks:
+          type: integer
+        bytes_done:
+          type: integer
+        bytes_total:
+          type: integer
+        elapsed_s:
+          type: integer
+        eta_s:
+          type: integer
+        pid:
+          type: integer
+          description: The index process.
+    IdleProgress:
+      type: object
+      required: [idle]
+      properties:
+        idle:
+          type: boolean
+          const: true
+    Progress:
+      oneOf:
+        - $ref: "#/components/schemas/RunningProgress"
+        - $ref: "#/components/schemas/IdleProgress"
+    IndexRequest:
+      type: object
+      properties:
+        reindex:
+          type: boolean
+          default: false
+          description: True runs `rhebok index --reindex`, which rebuilds from source.
+    IndexStarted:
+      type: object
+      required: [started, pid, reindex]
+      properties:
+        started:
+          type: boolean
+          const: true
+        pid:
+          type: integer
+        reindex:
+          type: boolean
+    IndexRun:
+      type: object
+      required: [pid, reindex, finished, ok, code, log]
+      properties:
+        pid:
+          type: integer
+        reindex:
+          type: boolean
+        finished:
+          type: boolean
+        ok:
+          type: [boolean, "null"]
+          description: Null while running, or when the process ended without its exit being recorded.
+        code:
+          type: [integer, "null"]
+          description: The exit code, when there is one.
+        log:
+          type: string
+          description: The log file the run writes to.
+    IndexRunView:
+      type: object
+      required: [run]
+      properties:
+        run:
+          oneOf:
+            - $ref: "#/components/schemas/IndexRun"
+            - type: "null"
+    IgnorePreview:
+      type: object
+      required: [error, matches, of, sample]
+      properties:
+        error:
+          type: [string, "null"]
+          description: Why the pattern is invalid, or null.
+        matches:
+          type: integer
+        of:
+          type: integer
+          description: How many skipped files were tested.
+        sample:
+          type: array
+          maxItems: 5
+          items:
+            type: string
+    MemoryKind:
+      type: string
+      enum: [lesson, fact, episode]
+    MemoryOrigin:
+      type: string
+      enum: [user, claude, distill]
+    MemoryFacts:
+      type: object
+      required: [kind, created, origin, confidence]
+      properties:
+        kind:
+          $ref: "#/components/schemas/MemoryKind"
+        created:
+          type: integer
+          description: Unix seconds.
+        project:
+          type: string
+          description: The project path the memory is scoped to. Absent for a global memory.
+        origin:
+          $ref: "#/components/schemas/MemoryOrigin"
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 255
+        session:
+          type: string
+          description: The session URI an episode was distilled from.
+        source_hash:
+          type: string
+        source_stamp:
+          type: string
+    Memory:
+      type: object
+      required: [id, uri, doc_id, title, text, facts, project_name]
+      properties:
+        id:
+          type: string
+          description: The memory id, 12 hex characters.
+        uri:
+          type: string
+          description: "`memory://<kind>/<id>`."
+        doc_id:
+          type: string
+          description: The id of the memory's node in the graph.
+        title:
+          type: string
+        text:
+          type: string
+        facts:
+          $ref: "#/components/schemas/MemoryFacts"
+        project_name:
+          type: [string, "null"]
+          description: The configured name of the memory's project, when one resolves.
+    Memories:
+      type: object
+      required: [memories, unavailable]
+      properties:
+        memories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Memory"
+        unavailable:
+          type: [string, "null"]
+          description: Why memories cannot be listed (disabled, or the pack is unreadable), or null.
+    ReachedDocument:
+      type: object
+      required: [doc_id, title, uri, relevance]
+      properties:
+        doc_id:
+          type: string
+        title:
+          type: string
+        uri:
+          type: string
+        relevance:
+          type: number
+    MemoryReach:
+      oneOf:
+        - type: object
+          required: [reach]
+          properties:
+            reach:
+              type: array
+              items:
+                $ref: "#/components/schemas/ReachedDocument"
+        - $ref: "#/components/schemas/Error"
+    MemorySaveRequest:
+      type: object
+      required: [kind, text, scope]
+      properties:
+        id:
+          type: string
+          description: Leave out to create a memory. Give an existing id (or unique prefix) to edit it. A blank id is refused.
+        kind:
+          type: string
+          description: "`lesson`, `fact` or `episode` (case-insensitive)."
+        text:
+          type: string
+          description: 10 to 2,000 characters after trimming.
+        scope:
+          type: string
+          description: "`global` or an empty string for a global memory; otherwise the project path it applies to."
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 100
+          description: A percent.
+    MemorySaveOutcome:
+      oneOf:
+        - type: object
+          title: Saved
+          required: [outcome, id]
+          properties:
+            outcome:
+              type: string
+              const: saved
+            id:
+              type: string
+        - type: object
+          title: Replaced
+          description: |
+            Either a new memory replaced a near-duplicate of the same kind,
+            which is now gone, or an edit succeeded. `id` is the memory's id
+            after the write.
+          required: [outcome, id, previous_title]
+          properties:
+            outcome:
+              type: string
+              const: replaced
+            id:
+              type: string
+            previous_title:
+              type: string
+              description: |
+                The title of the memory that was replaced, or, for an edit, the
+                edited memory's own title before the edit.
+        - type: object
+          title: Duplicate
+          description: |
+            Nothing was written. `id` is the memory that already exists: the
+            same text under the same id, a near-duplicate episode, or the
+            memory an edit's new id would collide with.
+          required: [outcome, id]
+          properties:
+            outcome:
+              type: string
+              const: duplicate
+            id:
+              type: string
+      discriminator:
+        propertyName: outcome
+    MemoryDeleteRequest:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          description: The memory id, or a unique prefix of it.
+    MemoryDeleteOutcome:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+    GraphNode:
+      type: object
+      required: [id, title, source_type, chunks, inbound]
+      properties:
+        id:
+          type: string
+          description: A document id, a memory's `doc_id`, or `project:<path>` for a project node.
+        title:
+          type: string
+        source_type:
+          $ref: "#/components/schemas/SourceType"
+        chunks:
+          type: integer
+        inbound:
+          type: integer
+          description: Inbound links.
+        agent:
+          $ref: "#/components/schemas/SessionAgent"
+        memory_kind:
+          $ref: "#/components/schemas/MemoryKind"
+        memory_id:
+          type: string
+          description: Present on memory nodes.
+    GraphEntity:
+      type: object
+      required: [id, name, kind]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+    GraphEdge:
+      type: object
+      required: [from, to, kind]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+        kind:
+          type: string
+          description: For example `wikilink`, `supersedes`, `superseded-by`, `mentions`, `tagged`, `distilled-from` or `scoped-to`.
+    Graph:
+      type: object
+      required: [nodes, entities, tags, edges]
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphNode"
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        tags:
+          type: array
+          items:
+            type: string
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEdge"
+    Lifecycle:
+      type: string
+      enum: [Current, Investigating, Proposed, Superseded]
+    DocumentDetail:
+      type: object
+      required: [id, uri, title, source_type, indexed_at, chunks, inbound, status, lifecycle]
+      properties:
+        id:
+          type: string
+        uri:
+          type: string
+        title:
+          type: string
+        source_type:
+          $ref: "#/components/schemas/SourceType"
+        indexed_at:
+          type: integer
+        chunks:
+          type: integer
+        inbound:
+          type: integer
+        status:
+          type: [string, "null"]
+          description: The document's own `status:` value, as written, or null.
+        lifecycle:
+          $ref: "#/components/schemas/Lifecycle"
+    DocumentResult:
+      oneOf:
+        - $ref: "#/components/schemas/DocumentDetail"
+        - type: object
+          required: [error]
+          properties:
+            error:
+              type: string
+              enum: [missing id, unknown document]
+    SecretState:
+      type: string
+      enum: [set, unset]
+    EnvOverride:
+      type: object
+      required: [variable, setting]
+      properties:
+        variable:
+          type: string
+          enum: [RHEBOK_EMBED_URL, RHEBOK_EMBED_MODEL, RHEBOK_EMBED_TOKEN]
+        setting:
+          type: string
+          enum: [endpoint.url, endpoint.model, embed.token]
+    EmbedModelChoice:
+      type: object
+      required: [id, label, model, dimensions, hook_threshold, mcp_threshold, size, min_ollama, summary]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        model:
+          type: string
+        dimensions:
+          type: integer
+        hook_threshold:
+          type: number
+        mcp_threshold:
+          type: number
+        size:
+          type: string
+        min_ollama:
+          type: [string, "null"]
+        summary:
+          type: string
+    EmbedEndpointState:
+      type: object
+      required: [backend, url, model, error]
+      properties:
+        backend:
+          type: string
+          enum: [ollama, remote]
+        url:
+          type: [string, "null"]
+        model:
+          type: [string, "null"]
+        error:
+          type: [string, "null"]
+          description: Why the remote endpoint settings could not be used, or null.
+    ConfigView:
+      type: object
+      required: [path, exists, etag, effective, surface_weights, file, defaults, errors, secrets, env_overrides, embed_models, endpoint]
+      properties:
+        path:
+          type: string
+          description: The path of `config.toml`.
+        exists:
+          type: boolean
+        etag:
+          type: string
+          description: sha256 of the file's bytes as hex, or `""` when there is no file. Send it back on save.
+        effective:
+          type: object
+          additionalProperties: true
+          description: |
+            The whole config rhebok runs with, every default filled in. Keys
+            that look like secrets are removed. Dotted paths into this object
+            are the keys of a save's `set`.
+        surface_weights:
+          type: object
+          required: [hook, mcp]
+          description: The ranking weights the hook and MCP each use after per-surface overrides.
+          properties:
+            hook:
+              type: object
+              additionalProperties: true
+            mcp:
+              type: object
+              additionalProperties: true
+        file:
+          type: [object, "null"]
+          additionalProperties: true
+          description: Only what `config.toml` itself sets. `{}` when there is no file, null when it does not parse.
+        defaults:
+          type: object
+          additionalProperties: true
+          description: The config with nothing set, in the same shape as `effective`.
+        errors:
+          type: array
+          description: Every problem in the file as it is now.
+          items:
+            $ref: "#/components/schemas/FieldError"
+        secrets:
+          type: object
+          description: Whether each secret is set. The values are never returned.
+          required: [embed.token, pdf.ocr_token, backup.key, backup.drive_token]
+          properties:
+            embed.token:
+              $ref: "#/components/schemas/SecretState"
+            pdf.ocr_token:
+              $ref: "#/components/schemas/SecretState"
+            backup.key:
+              $ref: "#/components/schemas/SecretState"
+            backup.drive_token:
+              $ref: "#/components/schemas/SecretState"
+        env_overrides:
+          type: array
+          description: Endpoint settings that come from the process environment, which the dashboard cannot change.
+          items:
+            $ref: "#/components/schemas/EnvOverride"
+        embed_models:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmbedModelChoice"
+        endpoint:
+          $ref: "#/components/schemas/EmbedEndpointState"
+    ConfigPatchValue:
+      description: A TOML value as JSON. An object becomes a table; null means remove the key.
+      type: [string, number, integer, boolean, array, object, "null"]
+    ConfigCheckRequest:
+      type: object
+      properties:
+        set:
+          type: object
+          description: Dotted keys (`hook.threshold`) to values. A null value removes the key, the same as listing it in `unset`.
+          additionalProperties:
+            $ref: "#/components/schemas/ConfigPatchValue"
+        unset:
+          type: array
+          description: Dotted keys to remove, so their defaults apply again.
+          items:
+            type: string
+    ConfigSaveRequest:
+      type: object
+      required: [etag]
+      properties:
+        etag:
+          type: string
+          description: The `etag` from the last `GET /api/config`.
+        set:
+          type: object
+          description: Dotted keys (`hook.threshold`) to values. A null value removes the key, the same as listing it in `unset`.
+          additionalProperties:
+            $ref: "#/components/schemas/ConfigPatchValue"
+        unset:
+          type: array
+          description: Dotted keys to remove, so their defaults apply again.
+          items:
+            type: string
+    ConfigChecked:
+      type: object
+      required: [errors, blocking]
+      properties:
+        errors:
+          type: array
+          description: Every problem the patched file would have.
+          items:
+            $ref: "#/components/schemas/FieldError"
+        blocking:
+          type: array
+          description: The problems a save would refuse, which leaves out problems the file already has.
+          items:
+            $ref: "#/components/schemas/FieldError"
+    EmbedEndpointRequest:
+      type: object
+      description: Each field is optional. Absent leaves it alone; null or a blank string removes it; a string (trimmed, one line) sets it.
+      properties:
+        url:
+          type: [string, "null"]
+          description: The endpoint's base URL (`RHEBOK_EMBED_URL`).
+        model:
+          type: [string, "null"]
+          description: The model name to send (`RHEBOK_EMBED_MODEL`).
+        token:
+          type: [string, "null"]
+          description: The Bearer token (`RHEBOK_EMBED_TOKEN`). It is write-only.
+    InstallFix:
+      oneOf:
+        - type: object
+          title: Connect
+          required: [kind, agent]
+          properties:
+            kind:
+              type: string
+              const: connect
+            agent:
+              type: string
+              description: The agent to connect, which repairs the check.
+        - type: object
+          title: Command
+          required: [kind, command]
+          properties:
+            kind:
+              type: string
+              const: command
+            command:
+              type: string
+        - type: object
+          title: Manual
+          required: [kind, text]
+          properties:
+            kind:
+              type: string
+              const: manual
+            text:
+              type: string
+      discriminator:
+        propertyName: kind
+    InstallCheck:
+      type: object
+      required: [name, ok, detail, fix]
+      properties:
+        name:
+          type: string
+          examples: [binary, plugin, marketplace, registration, claude, path]
+        ok:
+          type: boolean
+        detail:
+          type: string
+        fix:
+          description: How to repair a failed check, or null when the check passed.
+          anyOf:
+            - $ref: "#/components/schemas/InstallFix"
+            - type: "null"
+    EmbedTarget:
+      type: object
+      required: [backend, url, model]
+      properties:
+        backend:
+          type: string
+          enum: [ollama, remote]
+        url:
+          type: [string, "null"]
+        model:
+          type: [string, "null"]
+    InstallView:
+      type: object
+      required: [root, binary, exe, checks, config, embed]
+      properties:
+        root:
+          type: string
+          description: rhebok's data directory.
+        binary:
+          type: string
+          description: The installed binary that hooks and agents run.
+        exe:
+          type: string
+          description: The binary this dashboard is running from.
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/InstallCheck"
+        config:
+          type: object
+          required: [path, errors]
+          properties:
+            path:
+              type: string
+            errors:
+              type: array
+              items:
+                $ref: "#/components/schemas/FieldError"
+        embed:
+          $ref: "#/components/schemas/EmbedTarget"
+    EmbedTest:
+      type: object
+      required: [ok, latency_ms, dimensions, backend, url, model]
+      properties:
+        ok:
+          type: boolean
+        latency_ms:
+          type: integer
+        dimensions:
+          type: [integer, "null"]
+          description: The length of the returned vector, or null on failure.
+        backend:
+          type: string
+          enum: [ollama, remote]
+        url:
+          type: [string, "null"]
+        model:
+          type: [string, "null"]
+        error:
+          type: string
+          description: Present only when `ok` is false.
+    AgentId:
+      type: string
+      enum: [claude-code, codex, claude-desktop, cursor, gemini]
+    AgentDetected:
+      type: object
+      required: [installed, version, config_path]
+      properties:
+        installed:
+          type: boolean
+        version:
+          type: [string, "null"]
+        config_path:
+          type: [string, "null"]
+    AgentStatus:
+      type: object
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [connected, not_connected, stale, broken]
+        reason:
+          type: string
+          description: Present when `state` is `stale` or `broken`.
+    AgentCapabilities:
+      type: object
+      required: [mcp, prompt_hook, session_hook, transcripts, instructions]
+      properties:
+        mcp:
+          type: boolean
+        prompt_hook:
+          type: boolean
+        session_hook:
+          type: boolean
+        transcripts:
+          type: boolean
+        instructions:
+          type: boolean
+    Agent:
+      type: object
+      required: [id, name, detected, status, capabilities, snippet]
+      properties:
+        id:
+          $ref: "#/components/schemas/AgentId"
+        name:
+          type: string
+        detected:
+          $ref: "#/components/schemas/AgentDetected"
+        status:
+          $ref: "#/components/schemas/AgentStatus"
+        capabilities:
+          $ref: "#/components/schemas/AgentCapabilities"
+        snippet:
+          type: [string, "null"]
+        instructions:
+          type: boolean
+          description: Present only for agents with an instructions block (Codex's `AGENTS.md`); true when it is in place.
+    AgentSnippets:
+      type: object
+      required: [mcp_json, codex_toml]
+      properties:
+        mcp_json:
+          type: string
+          description: An `mcpServers` JSON snippet for any MCP client.
+        codex_toml:
+          type: string
+          description: An `[mcp_servers.rhebok]` TOML snippet.
+    AgentList:
+      type: object
+      required: [agents, snippets]
+      properties:
+        agents:
+          type: array
+          description: 'One entry per supported agent. If probing one agent fails, its entry is `{"error": "agent probe panicked"}`.'
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/Agent"
+              - $ref: "#/components/schemas/Error"
+        snippets:
+          $ref: "#/components/schemas/AgentSnippets"
+    AgentRequest:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          description: The agent id, for example `claude-code` or `codex`. A blank id is refused.
+        instructions:
+          type: boolean
+          default: false
+          description: On connect, also add the opt-in instructions block where the agent has one (Codex's `AGENTS.md`).
+    AgentChange:
+      type: object
+      required: [files, backups, notes]
+      properties:
+        files:
+          type: array
+          description: Files written.
+          items:
+            type: string
+        backups:
+          type: array
+          description: Backup copies kept of files that existed before.
+          items:
+            type: string
+        notes:
+          type: array
+          description: Steps left for you, such as trusting a hook or restarting an app.
+          items:
+            type: string
+    AgentChanged:
+      type: object
+      required: [agent, change]
+      properties:
+        agent:
+          $ref: "#/components/schemas/Agent"
+        change:
+          $ref: "#/components/schemas/AgentChange"
+    UpdateStatus:
+      type: object
+      required: [pid, started_at, from, to, phase, message, done, ok]
+      properties:
+        pid:
+          type: integer
+        started_at:
+          type: integer
+          description: Unix seconds.
+        from:
+          type: string
+          description: The version being updated from.
+        to:
+          type: [string, "null"]
+        phase:
+          type: string
+          description: For example `checking`, `downloading`, `verifying`, `extracting`, `installing`, `upgrading`, `done` or `failed`.
+        message:
+          type: string
+        done:
+          type: boolean
+        ok:
+          type: [boolean, "null"]
+    Version:
+      type: object
+      required: [pid, installed, latest, url, checked_at, error, no_release, update_available, update]
+      properties:
+        pid:
+          type: integer
+          description: This dashboard's process id.
+        installed:
+          type: string
+          description: The version this dashboard was built as.
+        latest:
+          type: [string, "null"]
+          description: The newest release the last check found.
+        url:
+          type: [string, "null"]
+          description: The release page of `latest`.
+        checked_at:
+          type: [integer, "null"]
+          description: Unix seconds of the last check.
+        error:
+          type: [string, "null"]
+          description: Why the last check failed, or null.
+        no_release:
+          type: boolean
+          description: True when the last check found no published release.
+        update_available:
+          type: [string, "null"]
+          description: The newer version, when one is available.
+        update:
+          description: An update that is running or has finished, or null.
+          oneOf:
+            - $ref: "#/components/schemas/UpdateStatus"
+            - type: "null"
+    UpdateStarted:
+      type: object
+      required: [started, pid]
+      properties:
+        started:
+          type: boolean
+          const: true
+        pid:
+          type: integer
+    RestartStarted:
+      type: object
+      required: [started, pid, dashboard_pid]
+      properties:
+        started:
+          type: boolean
+          const: true
+        pid:
+          type: integer
+          description: The `rhebok restart` process.
+        dashboard_pid:
+          type: integer
+          description: This dashboard's process id, which the restart stops.
