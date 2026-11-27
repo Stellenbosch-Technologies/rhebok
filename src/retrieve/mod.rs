@@ -214,8 +214,8 @@ pub struct Retriever {
     /// no pack is present (`cosine_for`; `fts_search` too, though it always
     /// errors now that lbug's FTS index is gone — see its doc comment — so
     /// that call exists only to be caught and reported, not to serve BM25;
-    /// `expand`, `inbound_link_counts` always need the store regardless of
-    /// the pack) must treat this as fallible, not assume it is populated.
+    /// `expand` when the pack has no `pack.graph`; `inbound_link_counts`
+    /// always) must treat this as fallible, not assume it is populated.
     store: Option<Store>,
     embedder: Box<dyn Embedder>,
     ollama_url: String,
@@ -824,20 +824,22 @@ impl Retriever {
                     .take(5)
                     .map(|h| h.chunk_id.clone())
                     .collect();
-                // Unlike vector/bm25/measure, graph expansion has no pack arm —
-                // the pack does not carry the property graph at all. A tier that
-                // sets `graph` genuinely cannot be served without a store, so
-                // this must fail loudly rather than silently degrade to "no
-                // graph evidence", which would be indistinguishable from an
-                // honest empty neighbourhood.
-                let store = self.store.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "tier \"{}\" requires graph expansion, which needs an open \
-                         store — this retriever was built pack-only (storeless)",
-                        p.name
-                    )
-                })?;
-                let mut expanded = store.expand(&seeds, g.hops, g.max_neighbors)?;
+                let mut expanded = if pk.has_graph() {
+                    pk.expand(&seeds, g.hops, g.max_neighbors)?
+                        .into_iter()
+                        .map(|r| hit_from_record(r, 0.0, 0.0))
+                        .collect()
+                } else {
+                    let store = self.store.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "tier \"{}\" requires graph expansion, but the pack has no \
+                             pack.graph and this retriever has no store; run \
+                             `rhebok index --compact` to republish the pack",
+                            p.name
+                        )
+                    })?;
+                    store.expand(&seeds, g.hops, g.max_neighbors)?
+                };
                 if let Some(scope) = &self.scope {
                     expanded.retain(|h| pk.row_of(&h.chunk_id).is_some_and(|r| scope.contains(r)));
                 }

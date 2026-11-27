@@ -766,7 +766,9 @@ pub fn build_retriever(cfg: &Config, profile: &Profile) -> Result<Retriever> {
     // cost it used to add). With NO pack the counts are still store-only, so
     // the store must still open for it — `&& pack.is_none()`, not a dropped
     // clause.
-    let needs_store = profile.graph.is_some() || (cfg.weights.authority > 0.0 && pack.is_none());
+    let graph_in_pack = pack.as_ref().is_some_and(|pk| pk.has_graph());
+    let needs_store = (profile.graph.is_some() && !graph_in_pack)
+        || (cfg.weights.authority > 0.0 && pack.is_none());
 
     let retriever = if !needs_store {
         match pack {
@@ -782,8 +784,9 @@ pub fn build_retriever(cfg: &Config, profile: &Profile) -> Result<Retriever> {
             }
         }
     } else {
-        // Graph expansion, or authority weighting with no pack to read the
-        // counts from: the store opens regardless. The pack is still attached
+        // Graph expansion from a pack with no `pack.graph`, or authority
+        // weighting with no pack to read the counts from: the store opens
+        // regardless. The pack is still attached
         // when present — vector/bm25/measure read it either way.
         let store = Store::open_existing(&db, cfg.embed.dimensions)?;
         Retriever::new(store, embedder, cfg.embed.ollama_url.clone()).with_pack(pack)

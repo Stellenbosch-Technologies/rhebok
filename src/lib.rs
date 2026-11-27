@@ -123,7 +123,9 @@ pub fn retrieve_from_opened(
     // scale, and a pack that disagrees with its manifest must still refuse
     // rather than serve the right score against the wrong document.
     //
-    // Graph expansion is the only thing left that a pack cannot serve.
+    // Graph expansion is served by the pack when it carries `pack.graph`. A
+    // pack published before that file existed does not, and only then does
+    // a tier that expands open the store.
     //
     // Authority weighting used to be the other half of this condition, and it
     // was the expensive half: ANY non-zero `authority` sent EVERY tier down
@@ -138,8 +140,9 @@ pub fn retrieve_from_opened(
     // A pack must actually be present for that: with none, the counts are
     // still store-only, so `authority > 0.0` opens the store exactly as before
     // rather than silently dropping the lift.
-    let needs_store =
-        profile.graph.is_some() || (cfg.weights_for(surface).authority > 0.0 && pack.is_none());
+    let graph_in_pack = pack.as_ref().is_some_and(|pk| pk.has_graph());
+    let needs_store = (profile.graph.is_some() && !graph_in_pack)
+        || (cfg.weights_for(surface).authority > 0.0 && pack.is_none());
 
     let retriever = if !needs_store {
         match pack {
@@ -155,8 +158,9 @@ pub fn retrieve_from_opened(
             }
         }
     } else {
-        // Graph expansion, or authority weighting with no pack to read the
-        // counts from: the store opens regardless. The pack is still attached
+        // Graph expansion from a pack with no `pack.graph`, or authority
+        // weighting with no pack to read the counts from: the store opens
+        // regardless. The pack is still attached
         // when present — vector/bm25/measure read it either way, and the
         // `Database::new` cost is already sunk once `needs_store` is true.
         // `with_weights` then prefers the STORE's link counts over the pack's,

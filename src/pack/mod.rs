@@ -6,6 +6,7 @@
 //! a standalone spike, not by its documentation.
 
 pub mod analyze;
+pub mod graph;
 pub mod links;
 pub mod manifest;
 pub mod postings;
@@ -36,6 +37,7 @@ pub struct Pack {
     links: links::Reader,
     status: Option<status::Reader>,
     used: Option<used::Reader>,
+    graph: Option<graph::Reader>,
 }
 
 // `records::Reader` and `vectors::Reader` are mmap'd/usearch handles with no
@@ -327,6 +329,16 @@ impl Pack {
                 None
             }
         };
+        let graph = match graph::Reader::open(dir, m.rows) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!(
+                    "rhebok: {e:#}; ignoring it, so graph expansion reads the database. \
+                     Run `rhebok index --compact` to republish."
+                );
+                None
+            }
+        };
         Ok(Pack {
             recs,
             vecs,
@@ -334,6 +346,7 @@ impl Pack {
             links,
             status,
             used,
+            graph,
         })
     }
 
@@ -377,6 +390,28 @@ impl Pack {
 
     pub fn rows(&self) -> usize {
         self.recs.len()
+    }
+
+    pub fn has_graph(&self) -> bool {
+        self.graph.is_some()
+    }
+
+    pub fn expand(&self, seeds: &[String], hops: u8, max_neighbors: usize) -> Result<Vec<Record>> {
+        let graph = self
+            .graph
+            .as_ref()
+            .context("this pack has no pack.graph to expand from")?;
+        let mut rows = Vec::with_capacity(seeds.len());
+        for seed in seeds {
+            if let Some(row) = self.recs.find_by_chunk_id(seed)? {
+                rows.push(row as u32);
+            }
+        }
+        graph
+            .expand(&rows, hops, max_neighbors)?
+            .into_iter()
+            .map(|row| self.hydrate(row as usize))
+            .collect()
     }
 
     pub fn vector(&self, row: usize) -> Result<Option<Vec<f32>>> {

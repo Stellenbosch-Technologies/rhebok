@@ -4,8 +4,8 @@ Local RAG plugin for Claude Code. Rust. One binary, no daemon. Embeds through
 local Ollama by default, or any OpenAI-compatible `/v1/embeddings` endpoint.
 LadybugDB (`lbug`) is the embedded store: it holds the documents, the chunks
 with their embeddings, and the property graph. The retrieval pack published
-beside it (`src/pack/`) serves vector search (usearch) and BM25, so tier 1
-answers without opening the database.
+beside it (`src/pack/`) serves vector search (usearch), BM25 and graph
+expansion (`pack.graph`), so no search tier opens the database.
 
 ## Commands
 
@@ -57,10 +57,10 @@ writing runs `INSTALL vector`, which downloads lbug's `vector` extension from
 `https://extension.ladybugdb.com/` into `$HOME/.lbdb/extension`
 (`tests/it/store.rs` issues `INSTALL vector` too). A reader with no extension
 fails with `VectorExtensionMissing`, which names that directory. `rhebok
-status` prints it on its store line, search tiers 2-4 fail with it, and the
-dashboard shows it instead of "the index is busy". The write path reports a
-failed `INSTALL`/`LOAD` on stderr and still writes the index. Tier 1 keeps
-answering from the pack.
+status` prints it on its store line, search tiers 2-4 fail with it when the
+pack has no `pack.graph`, and the dashboard shows it instead of "the index is
+busy". The write path reports a failed `INSTALL`/`LOAD` on stderr and still
+writes the index. A pack with `pack.graph` keeps answering at every tier.
 
 ## Build and test layout
 
@@ -332,6 +332,25 @@ for 3.5 MB live from the 25th search to the 300th, and
 `malloc_zone_pressure_relief` reclaims none of it. Keeping one store open
 across searches is worse, not better: footprint rose from 150 to 211 MB over
 300 searches, because the buffer pool keeps the pages it read.
+
+**Graph expansion reads `pack.graph`, and the store is its fallback, not its
+reference.** Both publish paths (`rhebok index` and `--compact`) write
+`pack.graph` from `Store::graph_for_pack` into the shadow directory, so it
+publishes in the same rename as the records. It is keyed by row like
+`pack.links` and `pack.used`; `graph::Reader::open` refuses a file over a
+different row count, and `Pack::open` then ignores it with a warning. It is
+optional: a pack without it sends tiers 2-4 back to `Store::expand`, which is
+why `needs_store` asks `Pack::has_graph`. Documents are numbered in ascending
+id order, so ordering by document number is `Store::expand`'s `ORDER BY
+doc_id, ord`, and both apply `src/expansion.rs`.
+`the_pack_expands_to_exactly_what_the_store_expands_to` pins the two against
+each other over every seed in its fixture, at five hop and limit settings.
+Change the walk on one side and not the other and that test fails. On a clone
+of the live index (595 documents, 20,691 chunks), quiet machine, median
+whole-process `rhebok search` time over 20 interleaved runs fell from 99 to 56
+ms at tier 2, 113 to 69 ms at tier 3 and 177 to 119 ms at tier 4, with
+identical results; tier 1 stayed at 39 ms. `rhebok bench` opens a store of its own for its corpus
+checks, because tier 4's retriever no longer has one.
 
 ## Invariants that are not obvious from the code
 
