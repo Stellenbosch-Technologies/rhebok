@@ -9,7 +9,7 @@ use std::time::Instant;
 #[derive(Debug, Clone, serde::Serialize, PartialEq, rmcp::schemars::JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 pub struct ContextHit {
-    /// The source document's uri. Pass it to rhebok_related as `uri`.
+    /// The source document's uri. Pass it to rhebok_list_related as `uri`.
     pub uri: String,
     /// The source document's title.
     pub title: String,

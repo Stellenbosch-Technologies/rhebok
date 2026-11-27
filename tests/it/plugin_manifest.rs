@@ -94,7 +94,7 @@ fn the_memory_skill_names_both_tools_and_when_to_use_them() {
     assert!(s.starts_with("---"));
     assert!(s.contains("name: rhebok-memory"));
     assert!(s.to_lowercase().contains("use when"));
-    assert!(s.contains("rhebok_remember") && s.contains("rhebok_forget"));
+    assert!(s.contains("rhebok_save_memory") && s.contains("rhebok_delete_memory"));
     assert!(s.contains("<rhebok-lessons>"));
 }
 

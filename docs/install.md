@@ -344,7 +344,7 @@ Then try it:
   matching notes.
 - In Claude Code, ask about something from your notes. rhebok adds the most
   relevant passages to your prompt automatically, and Claude can also search
-  explicitly with the `rhebok_search` tool.
+  explicitly with the `rhebok_search_knowledge` tool.
 - `rhebok dashboard` shows the same things visually. The **Health** tab lists
   any install problem with its fix, and the **Search** tab shows exactly what
   rhebok found and what it passed to Claude.

@@ -654,7 +654,7 @@ fn the_lessons_block_is_plain_text_with_ids_dates_and_scope() {
     assert!(block.contains(
         "[abc123abc123 · 2025-09-01 · /Users/x/repo · saved by the user] Never comment code unless asked."
     ));
-    assert!(block.contains("rhebok_forget"));
+    assert!(block.contains("rhebok_delete_memory"));
     assert!(
         !block.trim_start().starts_with('{'),
         "must not be JSON: other session-start output may precede it on stdout"

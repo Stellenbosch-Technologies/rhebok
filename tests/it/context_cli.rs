@@ -229,7 +229,7 @@ fn the_mcp_tool_answers_like_the_cli() {
     let cli = context_json(&s, PROMPT);
     let tool = mcp_call(
         &s,
-        "rhebok_context",
+        "rhebok_get_context",
         serde_json::json!({ "message": PROMPT }),
     );
     assert_eq!(tool["block"], cli["block"], "{tool}");
@@ -243,7 +243,7 @@ fn the_mcp_tool_ranks_and_gates_with_the_hook_surface_not_the_mcp_one() {
     );
     let tool = mcp_call(
         &s,
-        "rhebok_context",
+        "rhebok_get_context",
         serde_json::json!({ "message": PROMPT }),
     );
     assert!(
@@ -256,7 +256,7 @@ fn the_mcp_tool_ranks_and_gates_with_the_hook_surface_not_the_mcp_one() {
 
 #[test]
 fn the_tool_router_lists_rhebok_context() {
-    assert!(rhebok::mcp::RhebokTools::tools().contains(&"rhebok_context".to_string()));
+    assert!(rhebok::mcp::RhebokTools::tools().contains(&"rhebok_get_context".to_string()));
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn the_mcp_tool_scopes_to_the_project_its_cwd_names() {
     ));
     let tool = mcp_call(
         &s,
-        "rhebok_context",
+        "rhebok_get_context",
         serde_json::json!({ "message": PROMPT, "cwd": api.display().to_string() }),
     );
     assert_eq!(tool["project"], "api", "{tool}");
@@ -280,7 +280,7 @@ fn the_mcp_tool_scopes_to_the_project_its_cwd_names() {
     );
     let unscoped = mcp_call(
         &s,
-        "rhebok_context",
+        "rhebok_get_context",
         serde_json::json!({ "message": PROMPT }),
     );
     assert!(unscoped["block"].is_string(), "{unscoped}");
@@ -295,7 +295,7 @@ fn a_tool_call_searches_with_the_mcp_budget_and_the_prehook_with_the_hooks() {
     assert!(mcp > hook);
     let tool = mcp_call(
         &s,
-        "rhebok_context",
+        "rhebok_get_context",
         serde_json::json!({ "message": PROMPT }),
     );
     assert_eq!(tool["budget_ms"], mcp, "{tool}");
@@ -308,7 +308,7 @@ fn a_tool_call_searches_with_the_mcp_budget_and_the_prehook_with_the_hooks() {
     .unwrap();
     let prehook = mcp_call(
         &s,
-        "rhebok_context",
+        "rhebok_get_context",
         serde_json::json!({ "message": PROMPT, "prehook": true }),
     );
     assert_eq!(prehook["budget_ms"], hook, "{prehook}");
@@ -321,7 +321,7 @@ fn a_prehook_call_searches_at_the_tier_the_config_names_after_the_server_started
     let config = std::fs::read_to_string(&s.cfg).unwrap();
     std::fs::write(&s.cfg, config.replace("quality = 1", "quality = 2")).unwrap();
     let prehook = server.call(
-        "rhebok_context",
+        "rhebok_get_context",
         serde_json::json!({ "message": PROMPT, "prehook": true }),
     );
     assert_eq!(prehook["notes"], serde_json::json!([]), "{prehook}");
@@ -330,9 +330,9 @@ fn a_prehook_call_searches_at_the_tier_the_config_names_after_the_server_started
 
 #[test]
 fn the_tool_description_says_to_use_it_before_answering_without_a_priority_rule() {
-    let text = rhebok::mcp::RhebokTools::tool_description("rhebok_context").unwrap();
+    let text = rhebok::mcp::RhebokTools::tool_description("rhebok_get_context").unwrap();
     assert!(text.contains("before answering"), "{text}");
     assert!(text.contains("<rhebok-context>"), "{text}");
-    assert!(text.contains("rhebok_search"), "{text}");
+    assert!(text.contains("rhebok_search_knowledge"), "{text}");
     assert!(!text.contains("FIRST"), "{text}");
 }

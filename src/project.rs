@@ -670,7 +670,7 @@ pub fn chat_instructions(cfg: &crate::config::Config, name: &str) -> Result<Stri
         .map(|r| crate::config::Config::expand_tilde_path(r))
         .ok_or_else(|| anyhow::anyhow!("project `{name}` has no roots to name it by"))?;
     Ok(format!(
-        "Before you answer each of my messages, call the rhebok tool `rhebok_context` with \
+        "Before you answer each of my messages, call the rhebok tool `rhebok_get_context` with \
 `message` set to my message exactly as I wrote it and `cwd` set to \"{root}\". \
 That selects my rhebok project `{name}`, so the answer only draws on that project's notes \
 and memories.\n\

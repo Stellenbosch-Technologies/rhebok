@@ -52,7 +52,7 @@ S3 bucket or Google Drive.
   agent isn't flooded with noise.
 - **It remembers your past sessions.** Your Claude Code and Codex
   transcripts are indexed too, so "how did we fix this last time?" has an
-  answer when the agent searches with `rhebok_search` or you run
+  answer when the agent searches with `rhebok_search_knowledge` or you run
   `rhebok search`. Finished sessions are also distilled into short episode
   memories. The automatic prompt context prefers your notes and keeps raw
   transcripts out by default.

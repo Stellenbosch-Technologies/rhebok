@@ -34,7 +34,7 @@ pub struct ContextArgs {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct RelatedArgs {
-    /// The `source:` value of a hit from rhebok_search or rhebok_context, copied exactly (for example `file:///Users/me/notes/adr-0004.md`).
+    /// The `source:` value of a hit from rhebok_search_knowledge or rhebok_get_context, copied exactly (for example `file:///Users/me/notes/adr-0004.md`).
     pub uri: String,
 }
 
@@ -54,7 +54,7 @@ pub struct RememberArgs {
 
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct ForgetArgs {
-    /// The memory's id, as shown in <rhebok-lessons>, in a (memory: …) line, or in rhebok_remember's reply. A unique prefix is enough; a prefix that matches two memories is refused.
+    /// The memory's id, as shown in <rhebok-lessons>, in a (memory: …) line, or in rhebok_save_memory's reply. A unique prefix is enough; a prefix that matches two memories is refused.
     pub id: String,
 }
 
@@ -68,23 +68,166 @@ pub struct MemoriesArgs {
     pub limit: Option<usize>,
 }
 
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct ReadArgs {
+    /// The `source:` value of a hit from rhebok_search_knowledge, rhebok_get_context or rhebok_list_related, copied exactly (for example `file:///Users/me/notes/adr-0004.md`).
+    pub uri: String,
+    /// The first section to return, counting from 0. The default is 0. Pass the previous reply's `next` to read the following page.
+    pub start: Option<usize>,
+    /// How many sections to return: 1 to 100. The default is 20.
+    pub limit: Option<usize>,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Deserialize,
+    serde::Serialize,
+    schemars::JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum IndexMode {
+    #[default]
+    Changes,
+    Backfill,
+    Compact,
+}
+
+impl IndexMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IndexMode::Changes => "changes",
+            IndexMode::Backfill => "backfill",
+            IndexMode::Compact => "compact",
+        }
+    }
+}
+
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct IndexArgs {
+    /// "changes" (the default) reads new and changed files. "backfill" embeds the sections still waiting for an embedding. "compact" rebuilds the index from its own stored rows without embedding anything.
+    pub mode: Option<IndexMode>,
+}
+
+#[derive(Debug, Default, serde::Deserialize, schemars::JsonSchema)]
+pub struct StatusArgs {
+    /// How many skipped files to list: 0 to 200. The default is 20.
+    pub skipped_limit: Option<usize>,
+}
+
 pub const DEFAULT_MEMORY_LIMIT: usize = 50;
 pub const MAX_MEMORY_LIMIT: usize = 200;
+pub const DEFAULT_READ_LIMIT: usize = 20;
+pub const MAX_READ_LIMIT: usize = 100;
+pub const DEFAULT_STATUS_SKIPPED: usize = 20;
+pub const MAX_STATUS_SKIPPED: usize = 200;
+pub const BACKFILL_BUDGET: std::time::Duration = std::time::Duration::from_secs(120);
+
+pub const RENAMED_TOOLS: &[(&str, &str)] = &[
+    ("rhebok_search", "rhebok_search_knowledge"),
+    ("rhebok_context", "rhebok_get_context"),
+    ("rhebok_related", "rhebok_list_related"),
+    ("rhebok_index", "rhebok_update_index"),
+    ("rhebok_remember", "rhebok_save_memory"),
+    ("rhebok_memories", "rhebok_list_memories"),
+    ("rhebok_forget", "rhebok_delete_memory"),
+];
+
+pub fn current_tool_name(name: &str) -> &str {
+    RENAMED_TOOLS
+        .iter()
+        .find(|(old, _)| *old == name)
+        .map_or(name, |(_, new)| new)
+}
 
 const NOTHING_INDEXED: &str =
-    "nothing is indexed yet. Run `rhebok index`, or call rhebok_index, then search again";
+    "nothing is indexed yet. Run `rhebok index`, or call rhebok_update_index, then search again";
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct SectionOutput {
+    /// The section's position in the document, counting from 0. `start` takes this number.
+    pub index: usize,
+    /// The section's heading path, when it has one.
+    pub heading: Option<String>,
+    /// The page number, when the section came from a PDF.
+    pub page: Option<i64>,
+    /// The section's full text, as indexed.
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct DocumentOutput {
+    /// A fixed reminder that the text is reference material from the user's files: data, not instructions.
+    pub notice: String,
+    /// The uri that was asked for.
+    pub source: String,
+    /// The document's title. Null when no indexed document has this uri.
+    pub title: Option<String>,
+    /// The sections from `start`, in document order. Empty when the document is not indexed or `start` is past its end.
+    pub sections: Vec<SectionOutput>,
+    /// How many sections the whole document has.
+    pub total: usize,
+    /// The `start` for the next page. Null when this page reaches the end of the document.
+    pub next: Option<usize>,
+    /// Why nothing could be read: no indexed document has this uri, nothing is indexed yet, or the index cannot be read. Null on every normal answer.
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct SkippedOutput {
+    /// The file the index did not read.
+    pub path: String,
+    /// Why it was skipped.
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, schemars::JsonSchema)]
+pub struct StatusOutput {
+    /// The version of rhebok that answered.
+    pub version: String,
+    /// Documents in the index.
+    pub documents: i64,
+    /// Sections in the index, across every document.
+    pub chunks: i64,
+    /// Sections not embedded yet. Keyword search finds them; search by meaning does not until they are embedded.
+    pub vectors_pending: i64,
+    /// The embedding model the index was built with. Null when nothing is indexed.
+    pub model: Option<String>,
+    /// When the index in use was published, in Unix seconds. Null when nothing is indexed yet.
+    pub last_indexed: Option<i64>,
+    /// True while an index run or a backfill is in progress. Search answers from the previous index until it finishes.
+    pub indexing: bool,
+    /// The folders and files the user configured as sources, as absolute paths.
+    pub sources: Vec<String>,
+    /// True when past agent sessions are indexed beside the sources.
+    pub sessions: bool,
+    /// Files the last index run could not read, with the reason: at most `skipped_limit` of them, 20 by default. Files the user chose to ignore are not listed.
+    pub skipped: Vec<SkippedOutput>,
+    /// How many files the last index run could not read, the ones not listed included.
+    pub skipped_total: usize,
+    /// Saved memories by kind ("lesson", "fact", "episode"). Empty when memory is disabled or nothing is saved.
+    pub memories: std::collections::BTreeMap<String, usize>,
+    /// Problems in the config file. The hook ignores a setting it cannot read, so each one is a setting that is not in effect.
+    pub config_problems: Vec<String>,
+    /// Why the index could not be read, and what to do. The counts read 0 when this is set. Null on every normal answer, an empty index included.
+    pub error: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct HitOutput {
     /// The document's title.
     pub title: String,
-    /// The document's uri. Pass it to rhebok_related as `uri`.
+    /// The document's uri. Pass it to rhebok_read_document or rhebok_list_related as `uri`.
     pub source: String,
     /// Where the excerpt sits inside the document, as a heading path, when it has one.
     pub heading: Option<String>,
     /// The page number, when the excerpt came from a PDF.
     pub page: Option<i64>,
-    /// 0 to 1, higher is closer to the query. Always 0 from rhebok_related, whose hits are found by link.
+    /// 0 to 1, higher is closer to the query. Always 0 from rhebok_list_related, whose hits are found by link.
     pub relevance: f32,
     /// The excerpt itself.
     pub text: String,
@@ -102,6 +245,8 @@ pub struct HitsOutput {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct IndexOutput {
+    /// The mode that ran: "changes", "backfill" or "compact".
+    pub mode: IndexMode,
     /// True when the run finished and its index is now live.
     pub ok: bool,
     /// Documents read for the first time.
@@ -110,8 +255,12 @@ pub struct IndexOutput {
     pub updated: usize,
     /// Documents removed because their file is gone.
     pub deleted: usize,
-    /// Sections in the index after the run.
-    pub chunks: usize,
+    /// For "changes", the sections of the documents this run read, so 0 when nothing changed; for "compact", every section in the index. Null for "backfill".
+    pub chunks: Option<usize>,
+    /// Sections embedded by a "backfill" run. 0 for the other modes.
+    pub embedded: usize,
+    /// Sections still waiting for an embedding after a "backfill" run; call it again while this is above 0. Null for the other modes.
+    pub vectors_pending: Option<usize>,
     /// Why the run failed or was refused. Null when `ok` is true.
     pub error: Option<String>,
 }
@@ -163,7 +312,7 @@ pub struct ForgetOutput {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, schemars::JsonSchema)]
 pub struct MemoryOutput {
-    /// The id rhebok_forget takes.
+    /// The id rhebok_delete_memory takes.
     pub id: String,
     /// "lesson", "fact" or "episode".
     pub kind: String,
@@ -220,38 +369,82 @@ impl HitsOutput {
 }
 
 impl IndexOutput {
-    pub fn from_run(run: Result<crate::index::IndexStats>) -> Self {
+    pub fn from_run(mode: IndexMode, run: Result<crate::index::IndexStats>) -> Self {
         match run {
             Ok(s) => Self {
+                mode,
                 ok: true,
                 added: s.added,
                 updated: s.updated,
                 deleted: s.deleted,
-                chunks: s.chunks,
+                chunks: Some(s.chunks),
+                embedded: 0,
+                vectors_pending: None,
                 error: None,
             },
-            Err(e) => Self::failed(format!("{e:#}")),
+            Err(e) => Self::failed(mode, format!("{e:#}")),
         }
     }
 
-    pub fn failed(error: String) -> Self {
+    pub fn from_backfill(run: Result<crate::index::BackfillStats>) -> Self {
+        match run {
+            Ok(s) => Self {
+                mode: IndexMode::Backfill,
+                ok: true,
+                added: 0,
+                updated: 0,
+                deleted: 0,
+                chunks: None,
+                embedded: s.embedded,
+                vectors_pending: Some(s.remaining),
+                error: None,
+            },
+            Err(e) => Self::failed(IndexMode::Backfill, format!("{e:#}")),
+        }
+    }
+
+    pub fn failed(mode: IndexMode, error: String) -> Self {
         Self {
+            mode,
             ok: false,
             added: 0,
             updated: 0,
             deleted: 0,
-            chunks: 0,
+            chunks: None,
+            embedded: 0,
+            vectors_pending: None,
             error: Some(error),
         }
     }
 
     pub fn describe(&self) -> String {
-        match &self.error {
-            None => format!(
-                "indexed: {} added, {} updated, {} chunks",
-                self.added, self.updated, self.chunks
+        match (&self.error, self.vectors_pending) {
+            (Some(e), _) => format!("index failed: {e}"),
+            (None, Some(pending)) => format!(
+                "backfilled: {} sections embedded, {pending} still waiting",
+                self.embedded
             ),
-            Some(e) => format!("index failed: {e}"),
+            (None, None) => format!(
+                "indexed ({}): {} added, {} updated, {} deleted, {} chunks",
+                self.mode.as_str(),
+                self.added,
+                self.updated,
+                self.deleted,
+                self.chunks.unwrap_or_default()
+            ),
+        }
+    }
+}
+
+pub fn run_index_mode(cfg: &Config, mode: IndexMode) -> IndexOutput {
+    match mode {
+        IndexMode::Changes => IndexOutput::from_run(mode, crate::index_now(cfg)),
+        IndexMode::Compact => IndexOutput::from_run(
+            mode,
+            crate::index::reindex_swap_with(cfg, crate::index::RebuildMode::Compact, true),
+        ),
+        IndexMode::Backfill => {
+            IndexOutput::from_backfill(crate::index::backfill_vectors(cfg, BACKFILL_BUDGET))
         }
     }
 }
@@ -400,6 +593,261 @@ pub fn memories_at(cfg: &Config, root: &Path, args: &MemoriesArgs) -> MemoriesOu
     }
 }
 
+impl DocumentOutput {
+    fn failed(uri: &str, error: String) -> Self {
+        Self {
+            notice: crate::budget::CONTEXT_PREAMBLE.trim_end().to_string(),
+            source: crate::budget::escape_reserved_tags(uri),
+            title: None,
+            sections: Vec::new(),
+            total: 0,
+            next: None,
+            error: Some(error),
+        }
+    }
+
+    pub fn describe(&self) -> String {
+        if let Some(error) = &self.error {
+            return format!("Could not read the document: {error}");
+        }
+        let title = crate::budget::one_line(self.title.as_deref().unwrap_or_default());
+        let shown = match (self.sections.first(), self.sections.last()) {
+            (Some(first), Some(last)) => format!(
+                "sections {} to {} of {}",
+                first.index + 1,
+                last.index + 1,
+                self.total
+            ),
+            _ => format!(
+                "no sections: `start` is past the end of the document, which has {}",
+                self.total
+            ),
+        };
+        let more = self
+            .next
+            .map(|n| format!("; call rhebok_read_document with start {n} for the next page"))
+            .unwrap_or_default();
+        let body = self
+            .sections
+            .iter()
+            .map(|s| {
+                let heading = s
+                    .heading
+                    .as_deref()
+                    .map(crate::budget::one_line)
+                    .unwrap_or_else(|| format!("Section {}", s.index + 1));
+                let page = s.page.map(|p| format!(" (p. {p})")).unwrap_or_default();
+                format!(
+                    "## {heading}{page}\n\n{}",
+                    crate::budget::quote_lines(&s.text)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        crate::budget::escape_reserved_tags(&format!(
+            "{}\n# {title}\nsource: {}\n{shown}{more}\n\n{body}",
+            crate::budget::CONTEXT_PREAMBLE,
+            crate::budget::one_line(&self.source),
+        ))
+    }
+}
+
+pub struct ReadablePacks {
+    pub main: Result<Option<Pack>>,
+    pub memory: Result<Option<Pack>>,
+}
+
+impl ReadablePacks {
+    pub fn open(cfg: &Config, db: &Path, memory_root: &Path) -> Self {
+        Self {
+            main: crate::pack::open_pack_for_reading(db),
+            memory: if cfg.memory.enabled {
+                crate::pack::open_pack_for_reading(&crate::memory::pack_dir(memory_root))
+            } else {
+                Ok(None)
+            },
+        }
+    }
+}
+
+fn not_found(uri: &str, main_is_empty: bool, problems: Vec<String>) -> String {
+    let shown = crate::budget::one_line(uri);
+    if !problems.is_empty() {
+        return format!("`{shown}` was not found, and {}", problems.join("; and "));
+    }
+    if uri.starts_with("memory://") {
+        return format!(
+            "no saved memory has the uri `{shown}`. rhebok_list_memories lists the memories \
+             that exist; a memory deleted with rhebok_delete_memory is gone"
+        );
+    }
+    if main_is_empty {
+        return NOTHING_INDEXED.to_string();
+    }
+    format!(
+        "no indexed document has the uri `{shown}`. Copy `source` exactly from a \
+         rhebok_search_knowledge, rhebok_get_context or rhebok_list_related hit; a file added \
+         since the last index run needs rhebok_update_index first"
+    )
+}
+
+fn sections_in(
+    opened: &Result<Option<Pack>>,
+    doc_id: &str,
+    describe: impl Fn(&anyhow::Error) -> String,
+    problems: &mut Vec<String>,
+) -> Vec<crate::pack::records::Record> {
+    let pack = match opened {
+        Ok(Some(pack)) => pack,
+        Ok(None) => return Vec::new(),
+        Err(e) => {
+            problems.push(describe(e));
+            return Vec::new();
+        }
+    };
+    pack.document_sections(doc_id).unwrap_or_else(|e| {
+        problems.push(describe(&e));
+        Vec::new()
+    })
+}
+
+pub fn read_document(packs: &ReadablePacks, args: &ReadArgs) -> DocumentOutput {
+    let doc_id = crate::model::Document::new_id(&args.uri);
+    let mut problems = Vec::new();
+    let main_is_empty = !matches!(&packs.main, Ok(Some(p)) if p.rows() > 0);
+    let mut sections = sections_in(
+        &packs.main,
+        &doc_id,
+        |e| {
+            format!(
+                "the index could not be read: {}",
+                RhebokTools::why_search_failed(e)
+            )
+        },
+        &mut problems,
+    );
+    if sections.is_empty() {
+        sections = sections_in(
+            &packs.memory,
+            &doc_id,
+            |e| {
+                format!(
+                    "the memory store could not be read ({e:#}); `rhebok memory rebuild` \
+                     republishes it"
+                )
+            },
+            &mut problems,
+        );
+    }
+    let Some(first) = sections.first() else {
+        return DocumentOutput::failed(&args.uri, not_found(&args.uri, main_is_empty, problems));
+    };
+    let safe = crate::budget::escape_reserved_tags;
+    let title = safe(&first.title);
+    let total = sections.len();
+    let start = args.start.unwrap_or(0);
+    let limit = args
+        .limit
+        .unwrap_or(DEFAULT_READ_LIMIT)
+        .clamp(1, MAX_READ_LIMIT);
+    let end = start.saturating_add(limit).min(total);
+    DocumentOutput {
+        notice: crate::budget::CONTEXT_PREAMBLE.trim_end().to_string(),
+        source: safe(&args.uri),
+        title: Some(title),
+        sections: sections
+            .into_iter()
+            .enumerate()
+            .skip(start)
+            .take(limit)
+            .map(|(index, r)| SectionOutput {
+                index,
+                heading: (!r.heading_path.is_empty()).then(|| safe(&r.heading_path)),
+                page: r.page_no,
+                text: safe(&r.text),
+            })
+            .collect(),
+        total,
+        next: (end < total).then_some(end),
+        error: None,
+    }
+}
+
+pub fn status_at(
+    cfg: &Config,
+    db: &Path,
+    memory_root: &Path,
+    config_path: &Path,
+    args: &StatusArgs,
+) -> StatusOutput {
+    let (snapshot, error) = match crate::store::Store::open_existing(db, cfg.embed.dimensions) {
+        Ok(store) => (Some(store.status_snapshot()), None),
+        Err(e) if e.downcast_ref::<crate::store::NoIndex>().is_some() => (None, None),
+        Err(e) => (None, Some(RhebokTools::why_search_failed(&e))),
+    };
+    let snapshot = snapshot.unwrap_or(crate::store::StatusSnapshot {
+        documents: 0,
+        chunks: 0,
+        model: None,
+        skipped: Vec::new(),
+        vectors_pending: 0,
+    });
+    let (skipped, _) = crate::skip::split_ignored(snapshot.skipped, &cfg.ignore);
+    let last_indexed = std::fs::metadata(db.join(crate::pack::manifest::MANIFEST_FILE))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64);
+    let memories = if cfg.memory.enabled {
+        crate::memory::counts_at(memory_root)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(kind, n)| (kind.as_str().to_string(), n))
+            .collect()
+    } else {
+        Default::default()
+    };
+    let config_problems = crate::config::edit::read_document(config_path)
+        .ok()
+        .flatten()
+        .map(|text| crate::config::check::check(&text))
+        .unwrap_or_default()
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    StatusOutput {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        documents: snapshot.documents,
+        chunks: snapshot.chunks,
+        vectors_pending: snapshot.vectors_pending,
+        model: snapshot.model,
+        last_indexed,
+        indexing: crate::index::an_index_run_is_in_progress(db),
+        sources: cfg
+            .sources
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect(),
+        sessions: cfg.index_transcripts,
+        skipped_total: skipped.len(),
+        skipped: skipped
+            .into_iter()
+            .take(
+                args.skipped_limit
+                    .unwrap_or(DEFAULT_STATUS_SKIPPED)
+                    .min(MAX_STATUS_SKIPPED),
+            )
+            .map(|s| SkippedOutput {
+                path: s.path,
+                reason: s.detail,
+            })
+            .collect(),
+        memories,
+        config_problems,
+        error,
+    }
+}
+
 fn reply<T: serde::Serialize>(text: String, structured: &T) -> CallToolResult {
     let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
     result.structured_content = serde_json::to_value(structured).ok();
@@ -482,6 +930,12 @@ impl OpenedPack {
         });
         Ok(pack)
     }
+}
+
+struct OpenedPacks {
+    embedder: Arc<dyn Embedder>,
+    main: Option<Arc<Pack>>,
+    memory: Result<Option<Arc<Pack>>>,
 }
 
 #[derive(Default)]
@@ -593,36 +1047,72 @@ impl RhebokTools {
         self.pack_opens.load(Ordering::SeqCst)
     }
 
+    fn opened_packs(&self) -> Result<OpenedPacks> {
+        let db = Config::db_path();
+        let dims = self.config.embed.dimensions;
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let embedder = match &cache.embedder {
+            Some(held) => Arc::clone(held),
+            None => {
+                let fresh: Arc<dyn Embedder> =
+                    Arc::from(crate::embed::for_config(&self.config.embed)?);
+                cache.embedder = Some(Arc::clone(&fresh));
+                fresh
+            }
+        };
+        let model_id = embedder.model_id();
+        let main = OpenedPack::reuse_or_open(&mut cache.main, &db, || {
+            self.pack_opens.fetch_add(1, Ordering::SeqCst);
+            crate::pack::open_pack_beside(&db, &model_id, dims)
+        })?;
+        let memory = OpenedPack::reuse_or_open(
+            &mut cache.memory,
+            &crate::memory::pack_dir(&crate::memory::default_root()),
+            || crate::memory::open_pack(&self.config, &model_id),
+        );
+        Ok(OpenedPacks {
+            embedder,
+            main,
+            memory,
+        })
+    }
+
+    pub fn read(&self, args: &ReadArgs) -> DocumentOutput {
+        let packs = ReadablePacks::open(
+            &self.config,
+            &Config::db_path(),
+            &crate::memory::default_root(),
+        );
+        let out = read_document(&packs, args);
+        if out.error.is_none() {
+            crate::usage::record(
+                &Config::db_path(),
+                &[crate::model::Document::new_id(&args.uri)],
+            );
+        }
+        out
+    }
+
+    pub fn status(&self, args: &StatusArgs) -> StatusOutput {
+        status_at(
+            &self.config,
+            &Config::db_path(),
+            &crate::memory::default_root(),
+            &Config::config_path(),
+            args,
+        )
+    }
+
     fn retriever_for(
         &self,
         surface: crate::config::Surface,
         profile: &Profile,
     ) -> Result<crate::retrieve::Retriever> {
-        let db = Config::db_path();
-        let dims = self.config.embed.dimensions;
-        let (embedder, pack, memory) = {
-            let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-            let embedder = match &cache.embedder {
-                Some(held) => Arc::clone(held),
-                None => {
-                    let fresh: Arc<dyn Embedder> =
-                        Arc::from(crate::embed::for_config(&self.config.embed)?);
-                    cache.embedder = Some(Arc::clone(&fresh));
-                    fresh
-                }
-            };
-            let model_id = embedder.model_id();
-            let pack = OpenedPack::reuse_or_open(&mut cache.main, &db, || {
-                self.pack_opens.fetch_add(1, Ordering::SeqCst);
-                crate::pack::open_pack_beside(&db, &model_id, dims)
-            })?;
-            let memory = OpenedPack::reuse_or_open(
-                &mut cache.memory,
-                &crate::memory::pack_dir(&crate::memory::default_root()),
-                || crate::memory::open_pack(&self.config, &model_id),
-            );
-            (embedder, pack, memory)
-        };
+        let OpenedPacks {
+            embedder,
+            main: pack,
+            memory,
+        } = self.opened_packs()?;
         crate::retrieve_from_opened(
             &self.config,
             surface,
@@ -740,24 +1230,29 @@ impl RhebokTools {
             open_world_hint = false
         ),
         output_schema = output_schema::<HitsOutput>(),
-        description = "Search the user's personal knowledge base (notes, papers, saved \
-                       articles, past agent sessions) for a query you write, by meaning and \
-                       by keyword. Use it when you need something specific the user wrote, \
-                       read or worked on before, instead of asking them to repeat it, and for \
-                       follow-up lookups after rhebok_context. For the first lookup on a new \
-                       message, use rhebok_context instead; to explore around a hit you \
-                       already have, use rhebok_related; to see saved memories by id, use \
-                       rhebok_memories. Reads a local index; only the query text leaves \
-                       rhebok, to the configured embedding server (a local Ollama by \
-                       default). Hits are ordered most relevant first, and hits below the \
-                       MCP relevance gate are dropped, so an empty list means nothing \
-                       matched well, not a failure. The text reply is the same hits as \
-                       Markdown excerpts. When the search cannot run (nothing indexed yet, \
-                       the embedding server not reachable, an index that must be rebuilt), \
-                       `error` and the text reply both say why and what to do next; that is \
-                       never a no-match."
+        description = "Search the user's own knowledge base (notes, papers, saved articles, past \
+                       agent sessions and saved memories) with a query you write. It matches by \
+                       meaning and by keyword.\n\nUse it for a follow-up or narrower lookup, or \
+                       whenever you need something the user wrote, read or decided before instead \
+                       of asking them to repeat it. For the first lookup on a new message, use \
+                       rhebok_get_context, which takes the user's message itself. To read a hit's \
+                       whole document, use rhebok_read_document; to follow its links, use \
+                       rhebok_list_related. When nothing you expected comes back, check \
+                       rhebok_get_status.\n\nParameters: write `query` as a question or a \
+                       description of the note, such as \"why did we stop using PgBouncer session \
+                       mode\". A single keyword ranks worse, but an exact identifier such as \
+                       ADR-0004 or an error string still matches. `quality` trades time for \
+                       recall: 0 is the fastest, the default 3 usually answers within a second, \
+                       and 4 can take about two seconds. Search again at 4 only when the first \
+                       pass came back thin.\n\nBehavior: only the query text leaves rhebok, to \
+                       the configured embedding server (a local Ollama by default). Hits under \
+                       the relevance gate are dropped, so an empty list is an honest no-match. \
+                       When the search cannot run, `error` says why and what to do, and that is \
+                       never a no-match.\n\nReturns: at most 10 hits, most relevant first, each \
+                       with its `source` uri, heading, page, `relevance` from 0 to 1 and excerpt \
+                       text."
     )]
-    async fn rhebok_search(
+    async fn rhebok_search_knowledge(
         &self,
         Parameters(args): Parameters<SearchArgs>,
     ) -> Result<CallToolResult, ErrorData> {
@@ -779,32 +1274,36 @@ impl RhebokTools {
     }
 
     #[tool(
-        title = "Find context for a message",
+        title = "Get context for a message",
         annotations(
-            title = "Find context for a message",
+            title = "Get context for a message",
             read_only_hint = true,
             destructive_hint = false,
             idempotent_hint = true,
             open_world_hint = false
         ),
         output_schema = output_schema::<crate::context::Context>(),
-        description = "Find the excerpts and saved memories from the user's knowledge base \
-                       that belong with the user's current message, gated and budgeted like \
-                       the automatic prompt hook but with more time to search. Use it before \
-                       answering whenever the message touches the user's own work: their \
-                       projects, code, notes, decisions, past sessions, people or plans. Skip \
-                       it when a <rhebok-context> block is already in the message, or when the \
-                       message is about general knowledge rather than the user's own material. \
-                       Prefer it over rhebok_search for the first lookup and over your own \
-                       memory of the user; use rhebok_search for later, narrower queries you \
-                       write yourself. Pass the user's message verbatim as `message`, plus \
-                       `cwd` when you know the working directory; leave `prehook` and \
-                       `session` unset. Read-only, local, and safe to repeat. A null `block` \
-                       means nothing cleared the gate, which is a normal answer; `notes` says \
-                       when retrieval was degraded, for example when the embedding server was \
-                       unreachable."
+        description = "Get the excerpts and saved memories that belong with the user's current \
+                       message, chosen and size-limited like the automatic prompt hook, with more \
+                       time to search. It takes the user's message; rhebok_search_knowledge takes \
+                       a query you write.\n\nUse it before answering whenever the message touches \
+                       the user's own work: their projects, code, notes, decisions, past \
+                       sessions, people or plans. Skip it when the message already contains a \
+                       <rhebok-context> block, or when it asks about general knowledge. Use \
+                       rhebok_search_knowledge for later, narrower lookups.\n\nParameters: pass \
+                       `message` exactly as the user wrote it, typos included. The relevance gate \
+                       is calibrated on real prompts, so a summary or a rewrite is judged against \
+                       the wrong bar. `cwd` decides which project's memories count, so pass the \
+                       working directory whenever you know it. `prehook` and `session` belong to \
+                       rhebok's own Claude Code mod: never set them.\n\nBehavior: it embeds the \
+                       message through the configured embedding server and usually answers within \
+                       a second. It changes nothing in the index or in the saved \
+                       memories.\n\nReturns: `block`, ready to read as context, or null when \
+                       nothing cleared the gate, which is a normal answer; `hits`, the title and \
+                       uri of each excerpt in the block; and `notes`, which says when retrieval \
+                       was degraded, for example because the embedding server was unreachable."
     )]
-    async fn rhebok_context(
+    async fn rhebok_get_context(
         &self,
         Parameters(args): Parameters<ContextArgs>,
     ) -> Result<CallToolResult, ErrorData> {
@@ -812,39 +1311,44 @@ impl RhebokTools {
         let context = tokio::task::spawn_blocking(move || tools.context(&args))
             .await
             .unwrap_or_else(|e| {
-                eprintln!("rhebok: rhebok_context worker panicked — {e:#}");
+                eprintln!("rhebok: rhebok_get_context worker panicked — {e:#}");
                 crate::context::Context::default()
             });
         Ok(reply(context.to_json(), &context))
     }
 
     #[tool(
-        title = "Find connected notes",
+        title = "List connected notes",
         annotations(
-            title = "Find connected notes",
+            title = "List connected notes",
             read_only_hint = true,
             destructive_hint = false,
             idempotent_hint = true,
             open_world_hint = false
         ),
         output_schema = output_schema::<HitsOutput>(),
-        description = "List the notes linked to one document you already have, by \
-                       structure rather than by meaning: the sections that follow its opening \
-                       section, the notes it links to by [[wikilink]], and the note that \
-                       replaced it, up to two links away. Use it after rhebok_search or \
-                       rhebok_context returns a starting point, to follow a thread or read \
-                       the surrounding sections. It does not search: to find a document in \
-                       the first place, use rhebok_search. Read-only and local. Returns at \
-                       most 10 hits, alternating adjacent sections and linked notes, in the \
-                       same shape as rhebok_search; `relevance` is always 0 because these are \
-                       found by link, not scored. An unknown uri or a document with no links \
-                       returns an empty list; when the index cannot be read, `error` says why."
+        description = "List the documents and sections connected to one document by structure, \
+                       not by meaning: the sections after its opening section, the notes it links \
+                       to with [[wikilinks]], and the note that replaced it, up to two links \
+                       away.\n\nUse it after rhebok_search_knowledge or rhebok_get_context gives \
+                       you a starting point, to follow a thread of linked notes. It does not \
+                       search: to find a document, use rhebok_search_knowledge; to read one from \
+                       start to end, use rhebok_read_document.\n\nParameters: `uri` is the \
+                       `source` of a hit, unchanged. Notes have file:// uris and past sessions \
+                       claude-session:// or codex-session:// uris. A path without its scheme, or \
+                       a uri with spaces encoded as %20, finds nothing.\n\nBehavior: it walks the \
+                       link graph stored by the last index run and calls no embedding server. A \
+                       link added to a note since then appears only after \
+                       rhebok_update_index.\n\nReturns: at most 10 hits, alternating adjacent \
+                       sections and linked notes, in the shape rhebok_search_knowledge uses, with \
+                       `relevance` always 0. An unknown uri or a document with no links returns \
+                       an empty list; `error` is set only when the index cannot be read."
     )]
-    async fn rhebok_related(
+    async fn rhebok_list_related(
         &self,
         Parameters(args): Parameters<RelatedArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        // See rhebok_search: blocking store/HTTP calls must run off the async
+        // See rhebok_search_knowledge: blocking store/HTTP calls must run off the async
         // worker threads.
         let config = self.config.clone();
         let (text, out) =
@@ -860,37 +1364,134 @@ impl RhebokTools {
     }
 
     #[tool(
-        title = "Re-index the knowledge base",
+        title = "Read a document",
         annotations(
-            title = "Re-index the knowledge base",
+            title = "Read a document",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        ),
+        output_schema = output_schema::<DocumentOutput>(),
+        description = "Read one indexed document in full, section by section in document order, \
+                       by its uri: a note, a PDF, a past agent session or a saved memory.\n\nUse \
+                       it when an excerpt from rhebok_search_knowledge, rhebok_get_context or \
+                       rhebok_list_related is not enough and you need the whole document around \
+                       it. It does not search: to find a document, use \
+                       rhebok_search_knowledge.\n\nParameters: `uri` is a hit's `source`, \
+                       unchanged, for example file:///Users/me/notes/adr-0004.md or \
+                       memory://lesson/c6f771fc1a36. A bare path, or a uri with spaces encoded as \
+                       %20, finds nothing. Page through a long document by passing each reply's \
+                       `next` back as `start` until `next` is null. A section is usually 1,000 to \
+                       2,000 characters, so raise `limit` toward 100 only when you need many \
+                       sections at once.\n\nBehavior: it returns the text as last indexed, which \
+                       can be older than the file on disk until rhebok_update_index runs. It \
+                       calls no embedding server, and nothing leaves this machine.\n\nReturns: \
+                       the title, the requested sections with their headings and page numbers, \
+                       `total` and `next`. A uri that is not indexed returns no sections, and \
+                       `error` says why and what to do."
+    )]
+    async fn rhebok_read_document(
+        &self,
+        Parameters(args): Parameters<ReadArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tools = self.clone();
+        let uri = args.uri.clone();
+        let out = tokio::task::spawn_blocking(move || tools.read(&args))
+            .await
+            .unwrap_or_else(|e| DocumentOutput::failed(&uri, format!("worker panicked: {e}")));
+        Ok(reply(out.describe(), &out))
+    }
+
+    #[tool(
+        title = "Get the knowledge base status",
+        annotations(
+            title = "Get the knowledge base status",
+            read_only_hint = true,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        ),
+        output_schema = output_schema::<StatusOutput>(),
+        description = "Get the state of the user's rhebok knowledge base: document and section \
+                       counts, sections waiting for an embedding, the embedding model, when the \
+                       index was last published, whether an index run is in progress, the \
+                       sources, the files the index could not read and why, saved memories by \
+                       kind, and config problems.\n\nUse it when a search finds nothing you \
+                       expected, to tell an empty, stale or still-building index from a real \
+                       no-match; before rhebok_update_index, to see whether a run is already \
+                       going; or when the user asks what rhebok holds. It lists no documents or \
+                       memories: use rhebok_search_knowledge and rhebok_list_memories for \
+                       those.\n\nParameters: `skipped_limit` caps the list of unreadable files at \
+                       20 by default. Raise it, up to 200, when `skipped_total` is larger and you \
+                       need every file, for example to explain why a folder is missing; set it to \
+                       0 when only the counts matter.\n\nBehavior: it reads only local files and \
+                       makes no network call, so it cannot tell whether the embedding server is \
+                       up; a failing search reports that. During an index run it answers from the \
+                       index that is live.\n\nReturns: `documents` 0 with `last_indexed` null \
+                       means nothing is indexed yet. `vectors_pending` above 0 means search by \
+                       meaning misses those sections until a backfill embeds them. When the index \
+                       cannot be read, `error` says why and the counts read 0."
+    )]
+    async fn rhebok_get_status(
+        &self,
+        Parameters(args): Parameters<StatusArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let tools = self.clone();
+        let out = tokio::task::spawn_blocking(move || tools.status(&args))
+            .await
+            .unwrap_or_else(|e| StatusOutput {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                error: Some(format!("worker panicked: {e}")),
+                ..StatusOutput::default()
+            });
+        let text = serde_json::to_string(&out).unwrap_or_else(|_| "{}".to_string());
+        Ok(reply(text, &out))
+    }
+
+    #[tool(
+        title = "Update the knowledge base index",
+        annotations(
+            title = "Update the knowledge base index",
             read_only_hint = false,
             destructive_hint = false,
             idempotent_hint = true,
             open_world_hint = false
         ),
         output_schema = output_schema::<IndexOutput>(),
-        description = "Update the knowledge base index from the user's configured sources, \
-                       picking up new, changed and deleted files. Use it when the user has just \
-                       added or edited files and rhebok_search or rhebok_context does not find \
-                       them yet. Do not call it routinely: rhebok already indexes at the start \
-                       of every session. Takes no parameters; what is indexed comes from \
-                       `sources` in the user's rhebok config. Incremental: only files whose \
-                       size or modification time changed are re-read, and unchanged sections \
-                       keep their stored embeddings, so a run with nothing new returns at once. \
-                       New text is embedded through the configured embedding server, which can \
-                       take minutes for many new files; search keeps answering from the \
-                       previous index until the new one is swapped in. Removes documents whose \
-                       source file is gone. Refuses, without changing anything, while another \
-                       index run is in progress, and reports that in `error`."
+        description = "Update the user's knowledge base index: read new and changed files, embed \
+                       sections that are still waiting, or compact the index.\n\nUse it when the \
+                       user has just added or edited files that a search does not find, when \
+                       rhebok_get_status shows `vectors_pending` above 0, or when a search error \
+                       asks for a compaction. Do not call it routinely: rhebok already indexes at \
+                       the start of every session. Check rhebok_get_status first to see whether a \
+                       run is already going.\n\nParameters: `mode` \"changes\" (the default) \
+                       stats every configured source, reads only files whose size or modification \
+                       time changed, and removes documents whose file is gone. \"backfill\" \
+                       embeds waiting sections and starts no new batch after two minutes, though \
+                       the batch under way and the final rebuild of the index can run past that; \
+                       call it again while `vectors_pending` stays above 0. \"compact\" rebuilds \
+                       the index from its own stored rows, which repairs a search that refuses \
+                       its index and reclaims disk space, without reading any file or embedding \
+                       anything.\n\nBehavior: \"changes\" and \"backfill\" send new text to the \
+                       configured embedding server, which can take minutes for many files. Search \
+                       answers from the previous index until the new one is swapped in. While \
+                       another index run holds the lock, it refuses and changes \
+                       nothing.\n\nReturns: the documents added, updated and deleted and the \
+                       sections read, or for a backfill the sections embedded and still waiting; \
+                       `error` says why a run failed or was refused."
     )]
-    async fn rhebok_index(&self) -> Result<CallToolResult, ErrorData> {
-        // See rhebok_search: blocking store/HTTP calls must run off the async
+    async fn rhebok_update_index(
+        &self,
+        Parameters(args): Parameters<IndexArgs>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // See rhebok_search_knowledge: blocking store/HTTP calls must run off the async
         // worker threads.
         let config = self.config.clone();
-        let out =
-            tokio::task::spawn_blocking(move || IndexOutput::from_run(crate::index_now(&config)))
-                .await
-                .unwrap_or_else(|e| IndexOutput::failed(format!("task panicked: {e}")));
+        let mode = args.mode.unwrap_or_default();
+        let out = tokio::task::spawn_blocking(move || run_index_mode(&config, mode))
+            .await
+            .unwrap_or_else(|e| IndexOutput::failed(mode, format!("task panicked: {e}")));
         Ok(reply(out.describe(), &out))
     }
 
@@ -904,22 +1505,31 @@ impl RhebokTools {
             open_world_hint = false
         ),
         output_schema = output_schema::<RememberOutput>(),
-        description = "Save a memory for future sessions: a lesson the user taught you (a \
-                       correction or rule), a durable fact about the user or their setup, or \
-                       an episode (what happened and what was decided). Use it when the user \
-                       corrects you, states a preference, or asks you to remember something; \
-                       do not use it for things already in their notes, which rhebok_search \
-                       finds, or for details that matter only to this conversation. To change a \
-                       memory, save the new wording: a near-duplicate of the same kind replaces \
-                       the old one, and an exact duplicate is not saved again. To check what is \
-                       already saved, use rhebok_memories; to remove a memory, use \
-                       rhebok_forget. Lessons are shown to you at the start of every session in \
-                       the matching project; every kind is also retrieved by relevance on later \
-                       prompts. Saving sends the text to the configured embedding server and is \
-                       rejected while it is unreachable; the memory itself is stored only on \
-                       this machine."
+        description = "Save a memory that later sessions see: a lesson (a correction or a rule \
+                       the user gave you), a fact (something durable about the user or their \
+                       setup) or an episode (what happened and what was decided).\n\nUse it when \
+                       the user corrects you, states a preference, or asks you to remember \
+                       something. Do not use it for what their notes already say, which \
+                       rhebok_search_knowledge finds, or for details that matter only in this \
+                       conversation. To see what is saved, use rhebok_list_memories; to remove a \
+                       memory, use rhebok_delete_memory.\n\nParameters: write `text` as the rule \
+                       or fact itself, in one to three sentences that make sense with no \
+                       conversation around them, for example \"Never commit with the personal \
+                       email; use the noreply address.\" `scope` defaults to the current project; \
+                       pass \"global\" only for a rule the user means everywhere. Leave \
+                       `confidence` at 80, and use 100 only when the user stated the rule \
+                       outright; a memory you save below the configured floor (80 by default) is \
+                       refused.\n\nBehavior: the text is sent to the configured embedding server, \
+                       so a save fails while that server is unreachable; the memory itself stays \
+                       on this machine. A memory almost the same as one of the same kind (cosine \
+                       similarity 0.94 or more by default) replaces it, and the replaced memory \
+                       is deleted with no undo. Lessons appear at the start of every session in \
+                       their project; every kind can be retrieved on later prompts.\n\nReturns: \
+                       `status` saved, replaced, duplicate or rejected; the memory's `id`, which \
+                       rhebok_delete_memory takes; the id and title of a memory it replaced; and \
+                       `reason` when nothing was saved."
     )]
-    async fn rhebok_remember(
+    async fn rhebok_save_memory(
         &self,
         Parameters(args): Parameters<RememberArgs>,
     ) -> Result<CallToolResult, ErrorData> {
@@ -935,7 +1545,7 @@ impl RhebokTools {
                             RememberOutput::from_outcome(kind, &outcome),
                         ),
                         Err(e) => {
-                            eprintln!("rhebok: rhebok_remember failed — {e:#}");
+                            eprintln!("rhebok: rhebok_save_memory failed — {e:#}");
                             (
                                 format!("Not saved: {e}"),
                                 RememberOutput::rejected(Some(kind), format!("{e:#}")),
@@ -961,27 +1571,31 @@ impl RhebokTools {
     }
 
     #[tool(
-        title = "Forget a memory",
+        title = "Delete a memory",
         annotations(
-            title = "Forget a memory",
+            title = "Delete a memory",
             read_only_hint = false,
             destructive_hint = true,
             idempotent_hint = true,
             open_world_hint = false
         ),
         output_schema = output_schema::<ForgetOutput>(),
-        description = "Permanently delete one saved memory (a lesson, fact or episode) by its \
-                       id. Use it when the user says a memory is wrong or no longer applies. To \
-                       correct a memory rather than drop it, call rhebok_remember with the new \
-                       wording instead: it replaces the near-duplicate. To find an id, use \
-                       rhebok_memories. This only removes rhebok memories; it never touches the \
-                       user's notes or files, and it cannot remove a hit from rhebok_search. \
-                       There is no undo: the memory is gone from the next prompt's retrieval \
-                       and from session-start lessons, and restoring it means saving it again \
-                       with rhebok_remember. Forgetting an id that is already gone deletes \
-                       nothing and says so in `reason`."
+        description = "Delete one saved memory (a lesson, fact or episode) by its id.\n\nUse it \
+                       when the user says a memory is wrong or no longer applies. To correct a \
+                       memory instead, save the new wording with rhebok_save_memory, which \
+                       replaces the near-duplicate. To find an id, use \
+                       rhebok_list_memories.\n\nParameters: `id` is usually 12 hex characters, \
+                       such as c6f771fc1a36; an episode distilled from a session has that \
+                       session's id instead. A shorter prefix works when exactly one memory \
+                       starts with it, so c6f7 can be enough; a prefix that matches two memories \
+                       deletes nothing.\n\nBehavior: there is no undo. The memory leaves \
+                       session-start lessons and prompt retrieval at once, and restoring it means \
+                       saving it again. It touches only rhebok's memory store, never the user's \
+                       notes or files, so it cannot remove a search hit.\n\nReturns: `forgotten` \
+                       with the deleted memory's id, kind and title. An id that matches nothing \
+                       deletes nothing and says so in `reason`."
     )]
-    async fn rhebok_forget(
+    async fn rhebok_delete_memory(
         &self,
         Parameters(args): Parameters<ForgetArgs>,
     ) -> Result<CallToolResult, ErrorData> {
@@ -1004,17 +1618,24 @@ impl RhebokTools {
             open_world_hint = false
         ),
         output_schema = output_schema::<MemoriesOutput>(),
-        description = "List the memories rhebok has saved (lessons, facts and episodes), \
-                       newest first, with their ids, scope and full text. Use it when the user \
-                       asks what you remember about them, before rhebok_forget when you need a \
-                       memory's id, or before rhebok_remember to check whether a rule is \
-                       already saved. It lists by filter, not by meaning: to find the memories \
-                       relevant to a topic, use rhebok_search, which retrieves memories \
-                       alongside notes. Read-only and local; it does not embed anything, so it \
-                       works while the embedding server is down. `total` counts every match, so \
-                       a `total` above the number returned means `limit` cut the list."
+        description = "List the memories rhebok has saved for the user (lessons, facts and \
+                       episodes), newest first, with each one's id, scope, origin, confidence and \
+                       full text.\n\nUse it when the user asks what you remember about them, to \
+                       find the id rhebok_delete_memory takes, or to check whether a rule is \
+                       already saved before rhebok_save_memory. It filters and does not rank: to \
+                       find the memories about a topic, use rhebok_search_knowledge, which \
+                       retrieves memories beside notes.\n\nParameters: combine `kind` and `scope` \
+                       to narrow the list, for example kind \"lesson\" with scope \"global\" for \
+                       the rules that apply everywhere. A project path as `scope` lists only that \
+                       project's own memories, not the global ones. Raise `limit` up to 200 when \
+                       `total` shows the list was cut.\n\nBehavior: it embeds nothing, so it \
+                       works while the embedding server is down. It also lists the memories that \
+                       the session-start lessons hold back for low confidence.\n\nReturns: \
+                       `memories`, and `total`, which counts every match before `limit` is \
+                       applied. `error` explains an empty answer that could not be given, for \
+                       example when memory is disabled."
     )]
-    async fn rhebok_memories(
+    async fn rhebok_list_memories(
         &self,
         Parameters(args): Parameters<MemoriesArgs>,
     ) -> Result<CallToolResult, ErrorData> {
@@ -1029,6 +1650,17 @@ impl RhebokTools {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for RhebokTools {
+    async fn call_tool(
+        &self,
+        mut request: CallToolRequestParams,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        let name = current_tool_name(&request.name).to_string();
+        request.name = name.into();
+        let call = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        self.tool_router.call(call).await
+    }
+
     fn get_info(&self) -> ServerConfig {
         // ServerConfig (= InitializeResult) is #[non_exhaustive]: a struct literal
         // will not compile. Build with `new`, then set the optional fields.
@@ -1038,9 +1670,13 @@ impl ServerHandler for RhebokTools {
                     .with_website_url("https://github.com/Stellenbosch-Technologies/rhebok"),
             );
         info.instructions = Some(
-            "Semantic search over the user's personal knowledge base, plus durable memory: \
-             rhebok_remember saves lessons, facts and episodes; rhebok_memories lists them; \
-             rhebok_forget retracts one."
+            "Search and read the user's personal knowledge base, plus durable memory. \
+             rhebok_get_context gets what belongs with the user's message; \
+             rhebok_search_knowledge runs a query you write; rhebok_read_document reads a \
+             hit's whole document; rhebok_list_related follows its links; rhebok_get_status \
+             says what is indexed and rhebok_update_index updates it. rhebok_save_memory saves \
+             lessons, facts and episodes; rhebok_list_memories lists them; \
+             rhebok_delete_memory deletes one."
                 .into(),
         );
         info

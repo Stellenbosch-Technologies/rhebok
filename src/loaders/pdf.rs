@@ -203,8 +203,8 @@ fn locate(var: &str, explicit: Option<&Path>, stem: &str) -> Option<std::path::P
 /// This used to live in the loader, behind a `Once`, which put
 /// `std::env::set_var` in a running multi-threaded program. POSIX `setenv` is
 /// not thread-safe against a concurrent `getenv`, and the MCP server already
-/// races it: `rhebok_index` runs on one `spawn_blocking` thread of a
-/// `new_multi_thread` runtime (src/mcp.rs:156, :181) while `rhebok_search` on
+/// races it: `rhebok_update_index` runs on one `spawn_blocking` thread of a
+/// `new_multi_thread` runtime (src/mcp.rs:156, :181) while `rhebok_search_knowledge` on
 /// another reads `RHEBOK_DB` and builds a `reqwest` client that reads the proxy
 /// variables (src/mcp.rs:90). Parallel document loading widens that to every
 /// worker. The `Once` did not help: it serializes the WRITERS against each

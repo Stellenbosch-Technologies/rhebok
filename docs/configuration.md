@@ -295,12 +295,12 @@ rhebok project instructions api
 ```
 
 and paste what it prints into a Chat Project's instructions. It asks Claude
-to call `rhebok_context` before answering each message, with the project's
+to call `rhebok_get_context` before answering each message, with the project's
 root as `cwd`, which keeps the answer inside that project's scope and
 memories. This is best effort: Claude decides whether to make the call,
 unlike the Claude Code mod, which always runs. Plugin hooks do not help
 here: a plugin uploaded to Claude Desktop installs with its hooks, but
-Chat never runs them. Called as a tool, `rhebok_context` keeps the hook's
+Chat never runs them. Called as a tool, `rhebok_get_context` keeps the hook's
 gate, weights and token budget but searches with the MCP surface's time
 budget, since nothing kills a tool call at the hook's five seconds; the
 mod, which passes `prehook`, keeps the hook's. For the phone or the web,
@@ -356,14 +356,14 @@ transcript = 0.45   # default for ordering and for the prompt hook
 authority  = 0.0    # opt-in link authority, see below
 
 [mcp.weights]       # per-surface override, field by field
-transcript = 0.85   # default for rhebok_search: Claude's own searches
+transcript = 0.85   # default for rhebok_search_knowledge: Claude's own searches
 ```
 
 Relevance is a score from 0 to 1, and the weight multiplies it before the
 gate, so a transcript can score at most its weight. At 0.45, transcripts
 cannot clear the hook's 0.66 gate at all — deliberate, since the hook fires
-unasked. `rhebok_context` and the dashboard's search use the hook's weights
-too. `rhebok_search` ships with 0.85, so a transcript with an unweighted
+unasked. `rhebok_get_context` and the dashboard's search use the hook's weights
+too. `rhebok_search_knowledge` ships with 0.85, so a transcript with an unweighted
 relevance of about 0.65 or more clears its 0.55 gate. `rhebok search` is not
 gated and shows transcripts either way.
 

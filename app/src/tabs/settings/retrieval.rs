@@ -197,7 +197,13 @@ pub fn retrieval_section(ctx: &Ctx, bench: Option<&[BenchTier]>, cx: &App) -> Ve
         ));
     vec![
         surface_card(ctx, Surface::Hook, "Prompt hook", bench, cx),
-        surface_card(ctx, Surface::Mcp, "MCP tool (rhebok_search)", bench, cx),
+        surface_card(
+            ctx,
+            Surface::Mcp,
+            "MCP tool (rhebok_search_knowledge)",
+            bench,
+            cx,
+        ),
         claude.into_any_element(),
     ]
 }

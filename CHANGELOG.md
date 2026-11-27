@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+### MCP
+
+- **Every tool is renamed to one verb-then-noun pattern:** `rhebok_search` is
+  now `rhebok_search_knowledge`, `rhebok_context` is `rhebok_get_context`,
+  `rhebok_related` is `rhebok_list_related`, `rhebok_index` is
+  `rhebok_update_index`, `rhebok_remember` is `rhebok_save_memory`,
+  `rhebok_memories` is `rhebok_list_memories`, and `rhebok_forget` is
+  `rhebok_delete_memory`. The old names still answer, so an agent, a hook or
+  an `AGENTS.md` that names them keeps working, but `tools/list` shows only
+  the new ones. A permission rule saved for an old name, such as
+  `mcp__plugin_rhebok_rhebok__rhebok_search`, no longer matches: Claude Code
+  asks once for the new name.
+- **New `rhebok_read_document` tool.** It reads one indexed document by the
+  uri a hit carries, section by section in document order, 20 sections a page
+  (at most 100), with `next` for the following page. It reads PDFs, past
+  sessions and memories as well as notes. It answers from the retrieval pack,
+  so it opens no database and calls no embedding server.
+- **New `rhebok_get_status` tool.** It reports what `rhebok status` does: the
+  documents and sections indexed, sections still waiting for an embedding, the
+  model, when the index was last published, whether an index run is in
+  progress, the sources, skipped files with their reasons, saved memories by
+  kind and config problems. `skipped_limit` (default 20, at most 200) sets how
+  many skipped files it lists. It makes no network call.
+- **`rhebok_update_index` takes a `mode`.** `changes` (the default) is the
+  incremental index it always ran. `backfill` embeds the sections that
+  `vectors_pending` counts and reports how many are still waiting. It starts no
+  new batch after two minutes, but the batch under way and the final rebuild of
+  the index can run past that. `compact` rebuilds the index from its own rows with no
+  embedding, which is the repair a search error asks for after an analyzer
+  change. The result now carries `mode`, `embedded` and `vectors_pending`, and
+  `chunks` is documented as what it always was: the sections of the documents
+  the run read, not the size of the index.
+- **Every tool description is rewritten in one layout:** what the tool does,
+  when to use it and which tool to use instead, then parameters, behavior and
+  what it returns. The parameter part adds what the schema does not say, such
+  as uri schemes, the id format and how to choose a `quality` tier. The
+  behavior part says what leaves the machine, what cannot be undone and how
+  long a call can take. Glama's TDQS review scored the old descriptions 3 for
+  parameters on four tools and 3 for behavior on `rhebok_remember`.
+
 ## 0.2.3 — 2026-11-26
 
 ### Scanned PDFs

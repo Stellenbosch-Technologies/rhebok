@@ -1878,6 +1878,37 @@ impl IndexLock {
 }
 
 /// Public wrapper so the CLI can discard a progress file left by a dead run.
+struct BackfillMarker(std::path::PathBuf);
+
+impl BackfillMarker {
+    fn claim(db: &std::path::Path) -> BackfillMarker {
+        let path = backfill_marker_path(db);
+        let _ = std::fs::write(&path, std::process::id().to_string());
+        BackfillMarker(path)
+    }
+}
+
+impl Drop for BackfillMarker {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn backfill_marker_path(db: &std::path::Path) -> std::path::PathBuf {
+    db.with_extension("backfill")
+}
+
+pub fn backfill_is_running(db: &std::path::Path) -> bool {
+    std::fs::read_to_string(backfill_marker_path(db))
+        .ok()
+        .and_then(|pid| pid.trim().parse::<u32>().ok())
+        .is_some_and(pid_is_alive)
+}
+
+pub fn an_index_run_is_in_progress(db: &std::path::Path) -> bool {
+    IndexLock::is_held(db) || backfill_is_running(db)
+}
+
 pub fn pid_is_alive(pid: u32) -> bool {
     pid_alive(pid)
 }
@@ -2308,10 +2339,12 @@ pub struct BackfillStats {
     /// `budget` ran out, or `IndexLock` was contended and no work happened
     /// at all. `0` means the backlog is fully drained.
     pub remaining: usize,
-    /// Whether the pack was rebuilt and republished this call. Only true
-    /// when `remaining` reached `0` as a direct result of this call's own
-    /// work — never on a call that found the backlog already empty and did
-    /// nothing, which would otherwise republish on every idle poll.
+    /// Whether the pack was rebuilt and republished this call. True when
+    /// `remaining` is `0` and either this call embedded something or the
+    /// published pack carries fewer vectors than the store, which is what an
+    /// earlier call whose republish failed leaves behind. Never on a call
+    /// that found the backlog empty and the pack current, which would
+    /// otherwise republish on every idle poll.
     pub republished: bool,
 }
 
@@ -2355,6 +2388,7 @@ const BACKFILL_BATCH: usize = 64;
 /// `all_rows_for_pack` pass reads a pack with `rows_with_vectors == rows`.
 pub fn backfill_vectors(cfg: &Config, budget: std::time::Duration) -> Result<BackfillStats> {
     let live = Config::db_path();
+    let _running = BackfillMarker::claim(&live);
     let start = std::time::Instant::now();
     let mut stats = BackfillStats::default();
 
@@ -2400,9 +2434,12 @@ pub fn backfill_vectors(cfg: &Config, budget: std::time::Duration) -> Result<Bac
     let store = Store::open_existing(&live, cfg.embed.dimensions)
         .context("backfill: could not reopen the live index to check the backlog")?;
     stats.remaining = store.count_chunks_without_vectors()? as usize;
+    let vectored = (store.count_chunks()? as usize).saturating_sub(stats.remaining);
     drop(store);
+    let pack_lacks_vectors = crate::pack::manifest::Manifest::read(&live)
+        .map_or(vectored > 0, |m| m.rows_with_vectors < vectored);
 
-    if stats.remaining == 0 && stats.embedded > 0 {
+    if stats.remaining == 0 && (stats.embedded > 0 || pack_lacks_vectors) {
         // Every chunk now has a vector — rebuild and republish so `pack.vec`
         // appears. `RebuildMode::Compact` is the existing `--compact` path:
         // it rebuilds from the live store's own rows with no corpus re-read
