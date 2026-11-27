@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assert, clickButton, openTab, reloadPage, waitForText } from "../helpers.mjs";
 
@@ -63,7 +63,8 @@ export const tests = {
     await waitForState(page, "cursor", "not_connected");
     const text = (await card(page, "cursor")).text;
     assert(text.includes("Disconnected Cursor."), `no disconnect report:\n${text}`);
-    assert(!JSON.parse(readFileSync(file, "utf8")).mcpServers?.rhebok, "rhebok's entry is still in mcp.json");
+    assert(text.includes(`removed ${file}`), `the card does not say mcp.json was removed:\n${text}`);
+    assert(!existsSync(file), "mcp.json held only rhebok's entry and is still there");
   },
 
   "an unparseable gemini config is refused and left byte-identical": async ({ page, sandbox }) => {

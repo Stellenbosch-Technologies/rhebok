@@ -913,3 +913,102 @@ fn only_an_unparseable_file_is_flagged_as_one_to_fix_by_hand() {
     let (kind, message) = refused(core_agents::connect(&fx.env, request("claude-desktop")));
     assert_eq!(kind, AgentRefusal::Unavailable, "{message}");
 }
+
+#[test]
+fn disconnecting_removes_a_config_file_that_only_rhebok_wrote() {
+    let fx = fixture();
+    let file = Cursor::config_file(&fx.env);
+    Cursor.connect(&fx.env, &none()).unwrap();
+    assert!(file.exists());
+
+    let gone = Cursor.disconnect(&fx.env).unwrap();
+    assert!(!file.exists(), "left behind: {}", read(&file));
+    assert!(!backup_path(&file).exists());
+    assert!(gone.files.is_empty(), "{:?}", gone.files);
+    assert!(
+        gone.notes.iter().any(|n| n.contains("removed")),
+        "{:?}",
+        gone.notes
+    );
+    assert!(!gone.is_empty());
+    assert_eq!(Cursor.status(&fx.env), Status::NotConnected);
+}
+
+#[test]
+fn disconnecting_removes_a_rhebok_only_file_even_after_rhebok_backed_it_up() {
+    let fx = fixture();
+    let file = Cursor::config_file(&fx.env);
+    Cursor.connect(&fx.env, &none()).unwrap();
+    let text = read(&file).replace(&bin(&fx), "/old/rhebok");
+    write(&file, &text);
+    Cursor.connect(&fx.env, &none()).unwrap();
+    assert!(backup_path(&file).exists(), "the reconnect took a backup");
+
+    Cursor.disconnect(&fx.env).unwrap();
+    assert!(!file.exists());
+    assert!(!backup_path(&file).exists());
+}
+
+#[test]
+fn disconnecting_codex_removes_the_files_that_only_rhebok_wrote() {
+    let fx = fixture();
+    let config = Codex::config_file(&fx.env);
+    let hooks = Codex::hooks_file(&fx.env);
+    Codex.connect(&fx.env, &none()).unwrap();
+    assert!(config.exists() && hooks.exists());
+
+    Codex.disconnect(&fx.env).unwrap();
+    assert!(!config.exists(), "left behind: {}", read(&config));
+    assert!(!hooks.exists(), "left behind: {}", read(&hooks));
+    assert!(!backup_path(&config).exists());
+    assert!(!backup_path(&hooks).exists());
+    assert_eq!(Codex.status(&fx.env), Status::NotConnected);
+}
+
+#[test]
+fn disconnecting_keeps_a_file_that_held_the_users_own_settings() {
+    let fx = fixture();
+    let file = Cursor::config_file(&fx.env);
+    let mine =
+        "{\n  \"mcpServers\": {\n    \"other\": { \"command\": \"/usr/bin/other\" }\n  }\n}\n";
+    write(&file, mine);
+    Cursor.connect(&fx.env, &none()).unwrap();
+    let text = read(&file).replace(",\n    \"other\": { \"command\": \"/usr/bin/other\" }", "");
+    let text = text.replace(
+        "\"other\": {\n      \"command\": \"/usr/bin/other\"\n    },\n    ",
+        "",
+    );
+    write(&file, &text);
+    assert!(json(&file)["mcpServers"].get("other").is_none(), "{text}");
+
+    Cursor.disconnect(&fx.env).unwrap();
+    assert!(file.exists(), "a file the user had is never removed");
+    assert_eq!(json(&file), serde_json::json!({}));
+    assert_eq!(read(&backup_path(&file)), mine);
+}
+
+#[test]
+fn disconnecting_never_removes_a_config_reached_through_a_symlink() {
+    let fx = fixture();
+    let real = fx.home.join("dotfiles/mcp.json");
+    write(&real, "{}\n");
+    let link = Cursor::config_file(&fx.env);
+    std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    Cursor.connect(&fx.env, &none()).unwrap();
+
+    Cursor.disconnect(&fx.env).unwrap();
+    assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    assert_eq!(json(&real), serde_json::json!({}));
+}
+
+#[test]
+fn disconnecting_every_agent_reports_a_removed_file() {
+    let fx = fixture();
+    std::fs::create_dir_all(fx.home.join(".cursor")).unwrap();
+    Cursor.connect(&fx.env, &none()).unwrap();
+
+    let r = agents::disconnect_all_but_claude_code(&fx.env);
+    let line = r.lines.iter().find(|l| l.contains("cursor")).unwrap();
+    assert!(line.contains("removed"), "{line}");
+}

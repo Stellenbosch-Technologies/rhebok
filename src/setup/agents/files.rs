@@ -39,6 +39,23 @@ pub fn read_optional(file: &Path) -> Result<Option<String>> {
     }
 }
 
+pub fn remove_with_backup(file: &Path) -> Result<bool> {
+    let is_link = file
+        .symlink_metadata()
+        .is_ok_and(|m| m.file_type().is_symlink());
+    if is_link {
+        return Ok(false);
+    }
+    std::fs::remove_file(file).with_context(|| format!("remove {}", file.display()))?;
+    let backup = backup_path(file);
+    match std::fs::remove_file(&backup) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err(e).with_context(|| format!("remove {}", backup.display()))
+        }
+        _ => Ok(true),
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Written {
     pub backup: Option<PathBuf>,
