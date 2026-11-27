@@ -1,0 +1,63 @@
+instances:
+  - url: https://stellenbosch-technologies.docs.buildwithfern.com
+title: rhebok
+favicon: assets/favicon.png
+logo:
+  href: /introduction
+  light: assets/logo-light.svg
+  dark: assets/logo-dark.svg
+  height: 32
+layout:
+  page-width: 90rem
+  content-width: 52rem
+  sidebar-width: 17rem
+  searchbar-placement: header
+navigation:
+  - page: Introduction
+    path: pages/introduction.mdx
+    slug: introduction
+  - section: Get started
+    contents:
+      - page: Install
+        path: ../docs/install.md
+        slug: install
+      - page: Using rhebok
+        path: ../docs/usage.md
+        slug: usage
+  - section: Guides
+    contents:
+      - page: Configuration and tuning
+        path: ../docs/configuration.md
+        slug: configuration
+      - page: Backups
+        path: ../docs/backups.md
+        slug: backups
+      - page: Security model
+        path: ../docs/security-model.md
+        slug: security-model
+      - page: Troubleshooting
+        path: ../docs/troubleshooting.md
+        slug: troubleshooting
+  - api: Dashboard API
+    slug: api
+    paginated: true
+  - section: About
+    contents:
+      - page: How rhebok compares
+        path: ../docs/comparison.md
+        slug: comparison
+  - section: Maintainers
+    contents:
+      - page: Cutting a release
+        path: ../docs/releasing.md
+        slug: releasing
+navbar-links:
+  - type: github
+    value: https://github.com/Stellenbosch-Technologies/rhebok
+colors:
+  accentPrimary:
+    light: '#9E1F1A'
+    dark: '#F06A63'
+  background:
+    light: '#F2EEE6'
+    dark: '#0F0F0F'

@@ -4,9 +4,10 @@
 This is for maintainers.
 
 There is no tag step. Bump `version` in `Cargo.toml` (and the `rhebok` entry
-in `Cargo.lock`) and in `plugin/.claude-plugin/plugin.json` (a test fails
+in `Cargo.lock`), in `plugin/.claude-plugin/plugin.json` (a test fails
 while they differ, because a plugin installed from a marketplace reads its
-version from that file), add a `## <version> — <date>` section to
+version from that file) and in `info.version` of `fern/openapi/dashboard.yml`
+(a test fails while that differs too), add a `## <version> — <date>` section to
 `CHANGELOG.md`, and merge to `main`. The `release` workflow builds every
 target, runs `scripts/release-smoke.sh` against each packaged tarball, and
 publishes `v<version>` with all of them, `install.sh` and the MCP bundle at

@@ -2,6 +2,7 @@
 mod common;
 
 mod agents;
+mod api_reference;
 mod app_launcher;
 mod audit;
 #[cfg(feature = "backup")]

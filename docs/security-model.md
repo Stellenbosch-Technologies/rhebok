@@ -177,4 +177,4 @@ The dashboard's port is chosen by the operating system unless you pass
 
 ## Reporting a problem
 
-Report a vulnerability privately, as [SECURITY.md](../SECURITY.md) describes.
+Report a vulnerability privately, as [SECURITY.md](https://github.com/Stellenbosch-Technologies/rhebok/blob/main/SECURITY.md) describes.
