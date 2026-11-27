@@ -345,6 +345,23 @@ and `a_post_naming_another_host_is_refused_without_waiting_for_its_body`
 (`tests/dashboard.rs`) pin it, and every raw-HTTP helper in that file sends
 `Host: {addr}`.
 
+**Every read in the dashboard's request handler retries `EINTR`.** `handle()`
+sets a read timeout on each connection, and on Linux a `recv` on a socket with
+`SO_RCVTIMEO` is never restarted after a signal handler runs: it fails with
+`EINTR` even under `SA_RESTART` (signal(7)). `/api/install` starts child
+processes, and while it does, a handled signal reaches the dashboard. It used
+to treat any read error as the end of the request, so a request whose handler
+thread was waiting in `read` at that moment was closed with no response. This
+was the flaky Health-tab e2e test: about 1 run in 20 to 40 on Linux CI, never on
+macOS. In a container, 300 to 1,500 Health bursts against the real binary failed
+3 or 4 times in 10,500 requests, every one a read failing with `EINTR`; with
+`read_retrying` it failed 0 times, and without `/api/install` in the burst no
+read was interrupted at all. Which signal it is was not pinned: the dashboard's
+only handlers are glibc's signal 33 and Rust's SIGSEGV and SIGBUS ones. Any new
+read in `handle()` goes through `read_retrying`.
+`a_read_interrupted_by_a_signal_is_retried_and_the_request_arrives_whole`
+(`src/dashboard/http.rs`) pins it.
+
 **Indexed text reaches a prompt as quoted data, and it cannot close the block
 around it.** Whoever can write a note, a fetched page, a session transcript
 or a mounted pack can put text in front of the agent. `src/budget.rs` renders

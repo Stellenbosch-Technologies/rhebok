@@ -13,12 +13,22 @@ async function launch() {
   return puppeteer.launch(options);
 }
 
-async function newPage(browser, errors) {
+async function newPage(browser, errors, failedRequests) {
   const page = await browser.newPage();
+  const opened = Date.now();
   await page.setViewport({ width: 1400, height: 900 });
   page.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}`));
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  page.on("requestfailed", (r) => {
+    const url = new URL(r.url());
+    failedRequests.push(`${r.method()} ${url.pathname}${url.search} ${r.failure()?.errorText} at ${Date.now() - opened}ms`);
+  });
   return page;
+}
+
+function withFailedRequests(message, failedRequests) {
+  if (!failedRequests.length) return message;
+  return `${message}\n     failed requests:\n       ${failedRequests.join("\n       ")}`;
 }
 
 async function main() {
@@ -42,7 +52,8 @@ async function main() {
       }
       for (const [name, test] of Object.entries(spec.tests)) {
         const errors = [];
-        const page = await newPage(browser, errors);
+        const failedRequests = [];
+        const page = await newPage(browser, errors, failedRequests);
         const label = `${file.replace(/\.mjs$/, "")} › ${name}`;
         const shot = join(SHOTS, `${label.replace(/[^a-z0-9]+/gi, "-")}.png`);
         const snap = (step) => page.screenshot({ path: join(SHOTS, `${file.replace(/\.mjs$/, "")}-${step}.png`), fullPage: true });
@@ -53,7 +64,7 @@ async function main() {
           if (unexpected.length) throw new Error(`browser errors:\n  ${unexpected.join("\n  ")}`);
           results.push({ label, ok: true });
         } catch (e) {
-          results.push({ label, ok: false, error: e.message });
+          results.push({ label, ok: false, error: withFailedRequests(e.message, failedRequests) });
         } finally {
           await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
           await page.close();
