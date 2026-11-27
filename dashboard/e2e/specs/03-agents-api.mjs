@@ -45,7 +45,12 @@ export const tests = {
     const gone = await call(page, "/api/agents/disconnect", { id: "cursor" });
     assert(gone.status === 200, `disconnect answered ${gone.status}`);
     assert(gone.json.agent.status.state === "not_connected", `state after disconnect: ${gone.json.agent.status.state}`);
-    assert(existsSync(file) && !JSON.parse(readFileSync(file, "utf8")).mcpServers, "entry left behind");
+    assert(!existsSync(file), "mcp.json held only rhebok's entry and was left behind");
+    assert(!existsSync(`${file}.rhebok-bak`), "the backup of rhebok's own entry was left behind");
+    assert(
+      gone.json.change.notes.some((n) => n.startsWith(`removed ${file}`)),
+      `the removal is not reported: ${JSON.stringify(gone.json.change)}`,
+    );
   },
 
   "an unknown agent is a 404": async ({ page }) => {

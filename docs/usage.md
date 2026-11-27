@@ -217,7 +217,10 @@ touches only rhebok's own entries: every other key, server and hook in the file
 is kept, the first time rhebok rewrites a file it keeps the original beside it
 as `<file>.rhebok-bak`, connecting twice changes nothing, and a file that does
 not parse (a JSON file with comments, say) is refused with an error that names
-it rather than rewritten. `rhebok disconnect` removes only what rhebok added;
+it rather than rewritten. `rhebok disconnect` removes only what rhebok added.
+If the file holds only rhebok's entries, and held nothing else before rhebok
+first changed it, disconnect deletes the file and its backup instead of leaving
+an empty file behind. A file reached through a symlink is never deleted.
 `rhebok uninstall` disconnects every agent. Codex asks you to trust a new hook
 once (`/hooks`); Claude Desktop needs a restart to load the server. The
 dashboard's Integrations tab (through `/api/agents`) drives the same code.

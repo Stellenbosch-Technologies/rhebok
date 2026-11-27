@@ -211,6 +211,13 @@ impl Change {
         }
     }
 
+    pub fn removed(&mut self, file: &Path) {
+        self.notes.push(format!(
+            "removed {}, which held only rhebok's entries",
+            file.display()
+        ));
+    }
+
     pub fn absorb(&mut self, other: Change) {
         for f in other.files {
             if !self.files.contains(&f) {
@@ -487,6 +494,7 @@ pub fn disconnect_all_but_claude_code(env: &AgentEnv) -> AgentsReport {
                     .files
                     .iter()
                     .map(|f| f.display().to_string())
+                    .chain(change.notes.iter().cloned())
                     .collect::<Vec<_>>()
                     .join(", ")
             )),

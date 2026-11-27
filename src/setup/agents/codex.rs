@@ -155,6 +155,20 @@ pub fn upsert_server(doc: &mut DocumentMut, bin: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn is_empty_toml(doc: &DocumentMut) -> bool {
+    doc.to_string().trim().is_empty()
+}
+
+fn only_rhebok_wrote_toml(file: &Path) -> bool {
+    match load_toml(&files::backup_path(file)) {
+        Ok(mut original) => {
+            remove_server(&mut original);
+            is_empty_toml(&original)
+        }
+        Err(_) => false,
+    }
+}
+
 pub fn remove_server(doc: &mut DocumentMut) -> bool {
     remove_server_named(doc, SERVER_NAME)
 }
@@ -329,15 +343,28 @@ impl Agent for Codex {
         if config.exists() {
             let mut toml = load_toml(&config)?;
             if remove_server(&mut toml) {
-                let written = files::write_atomic(&config, &toml.to_string())?;
-                change.wrote(&config, written);
+                if is_empty_toml(&toml)
+                    && only_rhebok_wrote_toml(&config)
+                    && files::remove_with_backup(&config)?
+                {
+                    change.removed(&config);
+                } else {
+                    let written = files::write_atomic(&config, &toml.to_string())?;
+                    change.wrote(&config, written);
+                }
             }
         }
         let hooks_file = Self::hooks_file(env);
         if hooks_file.exists() {
             let mut hooks = json_config::load(&hooks_file)?;
-            if json_config::remove_hook(&mut hooks.doc, &Self::prompt_hook(env)) {
-                json_config::save(&hooks_file, &hooks, &mut change)?;
+            let hook = Self::prompt_hook(env);
+            if json_config::remove_hook(&mut hooks.doc, &hook) {
+                json_config::save_or_remove(
+                    &hooks_file,
+                    &hooks,
+                    |doc| json_config::remove_hook(doc, &hook),
+                    &mut change,
+                )?;
             }
         }
         let agents_md = Self::instructions_file(env);

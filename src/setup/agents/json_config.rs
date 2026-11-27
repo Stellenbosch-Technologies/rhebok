@@ -42,6 +42,32 @@ pub fn save(file: &Path, loaded: &JsonFile, change: &mut Change) -> Result<()> {
     Ok(())
 }
 
+pub fn save_or_remove(
+    file: &Path,
+    loaded: &JsonFile,
+    strip: impl Fn(&mut Json) -> bool,
+    change: &mut Change,
+) -> Result<()> {
+    if loaded.doc.is_empty_object()
+        && only_rhebok_wrote(file, strip)
+        && files::remove_with_backup(file)?
+    {
+        change.removed(file);
+        return Ok(());
+    }
+    save(file, loaded, change)
+}
+
+fn only_rhebok_wrote(file: &Path, strip: impl Fn(&mut Json) -> bool) -> bool {
+    match load(&files::backup_path(file)) {
+        Ok(mut original) => {
+            strip(&mut original.doc);
+            original.doc.is_empty_object()
+        }
+        Err(_) => false,
+    }
+}
+
 fn shape_error(file: &Path, what: &str) -> anyhow::Error {
     unparseable(file, "an agent configuration", what)
 }
@@ -362,13 +388,17 @@ impl McpJsonAgent<'_> {
             return Ok(change);
         }
         let mut loaded = load(self.file)?;
-        let mut touched = remove_server(&mut loaded.doc);
-        if let Some(h) = &self.hook {
-            touched |= remove_hook(&mut loaded.doc, h);
-        }
-        if touched {
-            save(self.file, &loaded, &mut change)?;
+        if self.strip(&mut loaded.doc) {
+            save_or_remove(self.file, &loaded, |doc| self.strip(doc), &mut change)?;
         }
         Ok(change)
+    }
+
+    fn strip(&self, doc: &mut Json) -> bool {
+        let mut touched = remove_server(doc);
+        if let Some(h) = &self.hook {
+            touched |= remove_hook(doc, h);
+        }
+        touched
     }
 }
