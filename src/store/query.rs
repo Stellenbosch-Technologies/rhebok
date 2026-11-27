@@ -291,7 +291,7 @@ impl Store {
     pub fn inbound_link_counts(&self) -> Result<std::collections::HashMap<String, u32>> {
         self.count_map(
             "MATCH (:Document)-[r:LINKS_TO]->(d:Document) \
-             WHERE r.kind = 'wikilink' RETURN d.id, count(*)",
+             WHERE r.kind IN ['wikilink', 'link'] RETURN d.id, count(*)",
         )
     }
 
@@ -398,7 +398,7 @@ impl Store {
         let inbound = self
             .exec(
                 "MATCH (:Document)-[r:LINKS_TO]->(d:Document) \
-                 WHERE d.id = $id AND r.kind = 'wikilink' RETURN count(*)",
+                 WHERE d.id = $id AND r.kind IN ['wikilink', 'link'] RETURN count(*)",
                 vec![("id", Value::String(id.to_string()))],
             )?
             .next()

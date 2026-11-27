@@ -334,3 +334,49 @@ fn load_file_reporting_names_the_pages_that_still_need_ocr() {
         clean.pending_ocr
     );
 }
+
+#[test]
+fn a_pdf_records_where_its_link_annotations_and_printed_addresses_point() {
+    use pdf_oxide::geometry::Rect;
+    use pdf_oxide::writer::PdfWriter;
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("plan.md"), "# Plan\n").unwrap();
+    let pdf = dir.path().join("report.pdf");
+    let mut writer = PdfWriter::new();
+    {
+        let mut page = writer.add_page(612.0, 792.0);
+        page.add_text(
+            "Quarterly findings. Details at https://example.com/appendix/.",
+            72.0,
+            720.0,
+            "Helvetica",
+            12.0,
+        );
+        page.link(
+            Rect::new(72.0, 700.0, 100.0, 12.0),
+            "https://example.com/spec#part",
+        );
+        page.link(Rect::new(72.0, 680.0, 100.0, 12.0), "plan.md");
+        page.finish();
+    }
+    std::fs::write(&pdf, writer.finish().unwrap()).unwrap();
+
+    let doc = PdfLoader::load_file_with(&pdf, &no_ocr()).unwrap();
+
+    let plan = format!(
+        "file://{}",
+        dir.path().join("plan.md").canonicalize().unwrap().display()
+    );
+    for expected in [
+        "https://example.com/spec".to_string(),
+        "https://example.com/appendix".to_string(),
+        plan,
+    ] {
+        assert!(
+            doc.link_uris.contains(&expected),
+            "{expected} missing from {:?}",
+            doc.link_uris
+        );
+    }
+}

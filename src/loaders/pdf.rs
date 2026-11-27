@@ -383,6 +383,24 @@ struct SourcePage {
     route: Route,
 }
 
+fn annotation_targets(path: &Path, base_uri: &str) -> Vec<String> {
+    use pdf_oxide::annotations::LinkAction;
+
+    let Ok(doc) = open(path) else {
+        return Vec::new();
+    };
+    let pages = doc.page_count().unwrap_or(0);
+    (0..pages)
+        .filter_map(|page| doc.get_annotations(page).ok())
+        .flatten()
+        .filter_map(|annotation| match annotation.action? {
+            LinkAction::Uri(target) => super::links::resolve(&target, base_uri),
+            LinkAction::GoToRemote { file, .. } => super::links::resolve(&file, base_uri),
+            _ => None,
+        })
+        .collect()
+}
+
 fn open(path: &Path) -> Result<PdfDocument> {
     PdfDocument::open(path)
         .map_err(|e| anyhow::anyhow!("`{}` could not be read as a PDF: {e}", path.display()))
@@ -569,6 +587,12 @@ impl PdfLoader {
         let uri = format!("file://{}", path.canonicalize()?.display());
         let mut doc = Document::new(SourceType::Pdf, &uri, &title, &text);
         doc.meta = serde_json::json!({ "pages": pages });
+        doc.link_uris = super::links::unique_in_order(
+            annotation_targets(path, &uri)
+                .into_iter()
+                .chain(super::links::in_markdown(&text, &uri))
+                .collect(),
+        );
         Ok(Loaded {
             doc,
             pending_ocr: extracted.dropped,

@@ -1626,3 +1626,57 @@ fn the_index_summary_counts_documents_removed_because_their_source_disappeared()
     let second = index();
     assert!(second.contains(", 1 removed,"), "{second}");
 }
+
+#[test]
+fn a_note_stamped_before_files_could_link_is_read_once_more_then_left_alone() {
+    let notes = tempfile::tempdir().unwrap();
+    let path = notes.path().join("alpha.md");
+    std::fs::write(&path, "# Alpha\n\nSee [beta](beta.md).\n").unwrap();
+    std::fs::write(notes.path().join("beta.md"), "# Beta\n").unwrap();
+    let cfg = rhebok::config::Config {
+        sources: vec![notes.path().to_path_buf()],
+        index_transcripts: false,
+        ..Config::default()
+    };
+
+    let meta = std::fs::metadata(&path).unwrap();
+    let secs = meta
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let canon = path.canonicalize().unwrap();
+    let uri = format!("file://{}", canon.display());
+    let beta_canon = notes.path().join("beta.md").canonicalize().unwrap();
+    let beta_uri = format!("file://{}", beta_canon.display());
+    let beta_len = std::fs::metadata(&beta_canon).unwrap().len();
+    let beta_secs = std::fs::metadata(&beta_canon)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let old_format: std::collections::HashMap<String, String> = [
+        (uri.clone(), format!("{secs}:{}", meta.len())),
+        (beta_uri, format!("{beta_secs}:{beta_len}")),
+    ]
+    .into_iter()
+    .collect();
+
+    let (first, fresh) =
+        rhebok::index::discover_stat_first(&cfg, &old_format, rhebok::index::Deferral::Allowed)
+            .unwrap();
+    let alpha = first
+        .docs
+        .iter()
+        .find(|d| d.uri == uri)
+        .expect("a stamp from before links were read must not count as unchanged");
+    assert_eq!(alpha.link_uris.len(), 1);
+
+    let (second, _) =
+        rhebok::index::discover_stat_first(&cfg, &fresh, rhebok::index::Deferral::Allowed).unwrap();
+    assert!(second.docs.is_empty(), "{:?}", second.docs);
+    assert_eq!(second.unchanged.len(), 2);
+}
