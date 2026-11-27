@@ -91,17 +91,66 @@ fn a_missing_program_is_not_available_and_lists_error() {
 }
 
 #[test]
-fn claude_is_looked_for_on_path_first_then_where_its_installers_put_it() {
+fn claude_is_looked_for_on_path_first_then_where_its_installers_and_homebrew_put_it() {
     let home = Path::new("/home/someone");
+    let homebrew = [
+        PathBuf::from("/opt/homebrew/bin/claude"),
+        PathBuf::from("/usr/local/bin/claude"),
+        PathBuf::from("/home/linuxbrew/.linuxbrew/bin/claude"),
+    ];
+    let mut expected = vec![
+        PathBuf::from("claude"),
+        home.join(".local/bin/claude"),
+        home.join(".claude/local/claude"),
+    ];
+    expected.extend(homebrew.clone());
+    assert_eq!(ClaudeCli::candidates(Some(home)), expected);
+    let mut without_home = vec![PathBuf::from("claude")];
+    without_home.extend(homebrew);
+    assert_eq!(ClaudeCli::candidates(None), without_home);
+}
+
+#[test]
+fn an_app_started_without_homebrew_on_its_path_still_searches_homebrew() {
+    let launched_from_finder =
+        std::env::join_paths(["/usr/bin", "/bin", "/usr/sbin", "/sbin"]).ok();
     assert_eq!(
-        ClaudeCli::candidates(Some(home)),
-        vec![
-            PathBuf::from("claude"),
-            home.join(".local/bin/claude"),
-            home.join(".claude/local/claude"),
+        rhebok::setup::agents::search_path_from(launched_from_finder),
+        [
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/home/linuxbrew/.linuxbrew/bin",
         ]
+        .map(PathBuf::from)
     );
-    assert_eq!(ClaudeCli::candidates(None), vec![PathBuf::from("claude")]);
+}
+
+#[test]
+fn a_shell_path_keeps_its_order_and_gains_no_duplicate() {
+    let shell = std::env::join_paths(["/usr/local/bin", "/Users/x/bin", "/opt/homebrew/bin"]).ok();
+    assert_eq!(
+        rhebok::setup::agents::search_path_from(shell),
+        [
+            "/usr/local/bin",
+            "/Users/x/bin",
+            "/opt/homebrew/bin",
+            "/home/linuxbrew/.linuxbrew/bin",
+        ]
+        .map(PathBuf::from)
+    );
+    assert_eq!(
+        rhebok::setup::agents::search_path_from(None),
+        [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/home/linuxbrew/.linuxbrew/bin",
+        ]
+        .map(PathBuf::from)
+    );
 }
 
 #[test]

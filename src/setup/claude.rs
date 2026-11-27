@@ -2,6 +2,12 @@ use anyhow::{anyhow, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+pub const HOMEBREW_BINS: [&str; 3] = [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/home/linuxbrew/.linuxbrew/bin",
+];
+
 #[derive(Debug, Clone)]
 pub struct ClaudeCli {
     program: PathBuf,
@@ -33,6 +39,11 @@ impl ClaudeCli {
             .chain(
                 home.into_iter()
                     .flat_map(|h| where_installers_put_it.iter().map(move |p| h.join(p))),
+            )
+            .chain(
+                HOMEBREW_BINS
+                    .iter()
+                    .map(|dir| Path::new(dir).join("claude")),
             )
             .collect()
     }
