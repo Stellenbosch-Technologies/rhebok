@@ -1,4 +1,5 @@
 pub mod codex;
+pub mod links;
 pub mod markdown;
 pub mod ocr;
 pub mod pdf;

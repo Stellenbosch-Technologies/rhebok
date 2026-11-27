@@ -182,6 +182,7 @@ impl MarkdownLoader {
             doc.meta = serde_json::Value::Object(lifecycle);
         }
         doc.links = extract_wikilinks(&body);
+        doc.link_uris = super::links::in_markdown(&body, &uri);
         doc.tags = tags;
         if has_fm_title || !doc.tags.is_empty() || !doc.meta.is_null() {
             let fields = serde_json::json!([doc.title, doc.tags, doc.meta]);

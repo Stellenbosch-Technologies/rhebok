@@ -35,6 +35,8 @@ pub struct Document {
     pub content_hash: String,
     /// Outbound links (wikilinks, citations) as raw targets; resolved at index time.
     pub links: Vec<String>,
+    #[serde(default)]
+    pub link_uris: Vec<String>,
     pub tags: Vec<String>,
     /// Free-form loader metadata, serialized to JSON for storage.
     pub meta: serde_json::Value,
@@ -50,6 +52,7 @@ impl Document {
             text: text.to_string(),
             content_hash: Self::content_hash(text),
             links: Vec::new(),
+            link_uris: Vec::new(),
             tags: Vec::new(),
             meta: serde_json::Value::Null,
         }

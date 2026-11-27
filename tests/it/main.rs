@@ -43,6 +43,7 @@ mod imports;
 mod incremental_index;
 mod index_graph;
 mod install_sh;
+mod links;
 mod loaders_codex;
 mod loaders_markdown;
 mod loaders_transcript;

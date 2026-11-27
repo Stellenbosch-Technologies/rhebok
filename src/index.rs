@@ -644,7 +644,21 @@ impl Indexer {
         // An ambiguous link must fail CLOSED, the same way an unresolvable one does.
         let mut candidates: std::collections::HashMap<String, std::collections::HashSet<String>> =
             Default::default();
+        let mut by_uri: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            Default::default();
         for (id, title, uri) in self.store.all_doc_keys()? {
+            by_uri
+                .entry(crate::loaders::links::normalize(&uri))
+                .or_default()
+                .insert(id.clone());
+            if let Some(file_name) = uri.rsplit('/').next().map(str::trim) {
+                if !file_name.is_empty() {
+                    candidates
+                        .entry(file_name.to_lowercase())
+                        .or_default()
+                        .insert(id.clone());
+                }
+            }
             let title = title.trim();
             if !title.is_empty() {
                 candidates
@@ -681,19 +695,34 @@ impl Indexer {
                 }
             }
         }
-        let by_key: std::collections::HashMap<String, String> = candidates
-            .into_iter()
-            .filter(|(_, ids)| ids.len() == 1)
-            .map(|(k, ids)| (k, ids.into_iter().next().expect("len checked")))
-            .collect();
+        let by_key = only_unambiguous(candidates);
+        let by_uri = only_unambiguous(by_uri);
+        let wikilink_target = |target: &str| {
+            let target = target.trim().to_lowercase();
+            by_key.get(target.as_str()).or_else(|| {
+                target
+                    .rsplit('/')
+                    .next()
+                    .filter(|last| *last != target)
+                    .and_then(|last| by_key.get(last))
+            })
+        };
 
         self.store.in_transaction(|store| {
             let mut n = 0;
             for d in docs {
                 for target in &d.links {
-                    if let Some(to) = by_key.get(target.trim().to_lowercase().as_str()) {
+                    if let Some(to) = wikilink_target(target) {
                         if to != &d.id {
                             store.link_documents(&d.id, to, "wikilink")?;
+                            n += 1;
+                        }
+                    }
+                }
+                for target in &d.link_uris {
+                    if let Some(to) = by_uri.get(&crate::loaders::links::normalize(target)) {
+                        if to != &d.id {
+                            store.link_documents(&d.id, to, "link")?;
                             n += 1;
                         }
                     }
@@ -973,6 +1002,26 @@ pub enum OcrPass {
     Skip,
     /// Recognize as `[pdf] ocr` directs.
     Run,
+}
+
+fn only_unambiguous(
+    candidates: std::collections::HashMap<String, std::collections::HashSet<String>>,
+) -> std::collections::HashMap<String, String> {
+    candidates
+        .into_iter()
+        .filter(|(_, ids)| ids.len() == 1)
+        .filter_map(|(k, ids)| ids.into_iter().next().map(|id| (k, id)))
+        .collect()
+}
+
+const LINKED_FILE_STAMP: &str = "links1";
+
+fn stamp_for(kind: Kind, path: &std::path::Path) -> Option<String> {
+    let base = stamp(path)?;
+    Some(match kind {
+        Kind::Markdown | Kind::Pdf => format!("{LINKED_FILE_STAMP}:{base}"),
+        Kind::Session(_) => base,
+    })
 }
 
 /// A cheap fingerprint of a file: modification time and size.
@@ -1313,7 +1362,7 @@ fn consider_into(
         }
     };
     let uri = format!("{scheme}{}", canon.display());
-    let now = stamp(path);
+    let now = stamp_for(kind, path);
     if let (Some(now), Some(prev)) = (&now, stamps.get(&uri)) {
         if now == prev {
             mine.found.unchanged.push(uri.clone());

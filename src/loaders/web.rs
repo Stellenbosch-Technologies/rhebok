@@ -31,6 +31,7 @@ impl WebLoader {
 
         let mut doc = Document::new(SourceType::Web, url, &title, &markdown);
         doc.meta = serde_json::json!({ "domain": domain });
+        doc.link_uris = super::links::in_markdown(&markdown, url);
         Ok(doc)
     }
 

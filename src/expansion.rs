@@ -3,7 +3,7 @@ use std::hash::Hash;
 
 use crate::model::Chunk;
 
-pub const FOLLOWED_LINK_KINDS: [&str; 2] = ["wikilink", "superseded-by"];
+pub const FOLLOWED_LINK_KINDS: [&str; 3] = ["wikilink", "link", "superseded-by"];
 
 pub fn adjacent_order(
     found: impl IntoIterator<Item = (String, String, i64)>,
