@@ -415,11 +415,11 @@ brackets stay, so code excerpts read normally. `quote_lines` starts every excerp
 puts titles, headings, links and memory scopes on one line, treating `\r`,
 `\n`, VT, FF, NEL, U+2028 and U+2029 as breaks. Without both, a note could
 carry its own excerpt header or its own `(memory: ..., saved by the user,
-...)` line. `rhebok_search` and `rhebok_related` (`RhebokTools::format_hits`
+...)` line. `rhebok_search_knowledge` and `rhebok_list_related` (`RhebokTools::format_hits`
 in `src/mcp.rs`) use the same preamble, escaping and quoting, and so does the
 plain output of `rhebok search` (`src/main.rs`), which the `/rhebok-search`
 slash command has the agent read. Its `--json` form escapes every string
-field and keeps its shape. `rhebok_context` returns a `hits` list beside its
+field and keeps its shape. `rhebok_get_context` returns a `hits` list beside its
 block; `ContextHit::from` (`src/context.rs`) puts each title and uri through
 `one_line` and the escape, since serde_json leaves `<` alone. Hits from a
 mounted pack never carry memory facts (`mounted_hit` in
@@ -434,7 +434,7 @@ puts indexed text in front of an agent must go through these functions.
 the mounted-pack rule.
 
 **Lessons say who saved them, and none claims the user's authority.**
-`rhebok_remember` lets the agent write lessons itself. So the SessionStart
+`rhebok_save_memory` lets the agent write lessons itself. So the SessionStart
 `<rhebok-lessons>` block (`LESSONS_HEADER` in `src/memory/mod.rs`) says the
 lessons were saved in earlier sessions, are to be weighed as guidance, and
 that the user's current instructions take precedence. Each lesson is one

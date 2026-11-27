@@ -367,7 +367,7 @@ fn the_agents_md_block_is_added_and_removed_leaving_the_text_around_it() {
     let text = read(&md);
     assert!(text.starts_with(mine), "{text}");
     assert!(text.contains(codex::BLOCK_START) && text.contains(codex::BLOCK_END));
-    assert!(text.contains("rhebok_search") && text.contains("rhebok_remember"));
+    assert!(text.contains("rhebok_search_knowledge") && text.contains("rhebok_save_memory"));
     assert_eq!(Codex.instructions(&fx.env), Some(true));
 
     assert!(Codex.connect(&fx.env, &opts).unwrap().is_empty());

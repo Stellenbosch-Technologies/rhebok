@@ -47,7 +47,7 @@ const MIN_WORDS: usize = 4;
 /// transcript is still too fresh to read, so the two numbers would fight. The
 /// ceiling is patience — a note saved before a coffee break should be
 /// searchable when you get back. Nothing here bounds a MANUAL `rhebok index`,
-/// or the MCP `rhebok_index` tool, which is what a user reaches for when they
+/// or the MCP `rhebok_update_index` tool, which is what a user reaches for when they
 /// want it now.
 const REINDEX_INTERVAL: Duration = Duration::from_secs(15 * 60);
 

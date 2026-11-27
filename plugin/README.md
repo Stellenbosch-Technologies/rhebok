@@ -24,7 +24,7 @@ nothing.
 ## What the plugin adds
 
 - The `rhebok-prehook` mod, which adds relevant passages from your knowledge
-  base to each prompt. It asks rhebok's MCP server through the `rhebok_context`
+  base to each prompt. It asks rhebok's MCP server through the `rhebok_get_context`
   tool, falls back to running `rhebok` itself when the server does not answer,
   and shows what it found on the status line. It also runs `rhebok` once when a
   session starts, so the prompt hook knows the mod is injecting.

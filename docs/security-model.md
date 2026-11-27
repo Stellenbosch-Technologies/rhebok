@@ -22,7 +22,7 @@ read. It is never an instruction the agent must follow.
   first 600 characters of each tool result. So text that the agent read once,
   such as a fetched web page or a file in someone else's repository, can be
   retrieved again in a later session, in any project.
-- **The agent itself, through memory.** The `rhebok_remember` MCP tool lets the
+- **The agent itself, through memory.** The `rhebok_save_memory` MCP tool lets the
   agent save lessons, facts and episodes. Claude Code asks you to approve each
   MCP tool call unless you have allowed the tool. With
   `distill_episodes = true` (the default), rhebok also writes episodes that a
@@ -39,39 +39,45 @@ read. It is never an instruction the agent must follow.
 - **`<rhebok-context>`**: the prompt hook, and the prehook mod when it is the
   injector, add retrieved excerpts to a prompt. Only hits that clear the
   relevance threshold are added, and only as many as fit in `max_tokens`. The
-  `rhebok_context` MCP tool returns the same block.
+  `rhebok_get_context` MCP tool returns the same block.
 - **`<rhebok-lessons>`**: at session start, rhebok prints the lessons that
   apply to the current project.
-- **MCP tool results**: `rhebok_search`, `rhebok_related` and
-  `rhebok_context` return excerpts when the agent calls them.
-  `rhebok_context` also returns a `hits` list with the title and link of each
-  excerpt in the block. `rhebok_memories` returns saved memories with their
-  full text. Every tool also returns its answer as structured content, which
-  carries the same answer as its text reply; the structured hits of
-  `rhebok_search` and `rhebok_related` start with the same fixed `notice`.
+- **MCP tool results**: `rhebok_search_knowledge`, `rhebok_list_related` and
+  `rhebok_get_context` return excerpts when the agent calls them, and
+  `rhebok_read_document` returns every section of one document, a memory included.
+  `rhebok_get_context` also returns a `hits` list with the title and link of each
+  excerpt in the block. `rhebok_list_memories` returns saved memories with their
+  full text. `rhebok_get_status` returns counts, paths, the model name, skipped
+  files and config problems, and no retrieved text. Every tool also returns
+  its answer as structured content, which carries the same answer as its text
+  reply; the structured results of `rhebok_search_knowledge`, `rhebok_list_related` and
+  `rhebok_read_document` start with the same fixed `notice`.
 - **`rhebok search` output**: the `/rhebok-search` slash command has the agent
   run `rhebok search` and read what it prints, in the plain form or with
   `--json`.
 
 Session transcripts reach these surfaces differently. By default a
 transcript's relevance is multiplied by 0.45, which keeps it under the prompt
-hook's gate, so the hook and `rhebok_context` do not inject raw transcripts.
-`rhebok_search` uses 0.85, so a strong match from a past session can reach the
+hook's gate, so the hook and `rhebok_get_context` do not inject raw transcripts.
+`rhebok_search_knowledge` uses 0.85, so a strong match from a past session can reach the
 agent when it searches. Episodes distilled from sessions are memories, and
 the hook can inject them. `[hook.weights]` and `[mcp.weights]` change this;
 see [Ranking weights](configuration.md#ranking-weights).
 
 ## How rhebok marks retrieved text
 
-- Each `<rhebok-context>` block, each non-empty `rhebok_search` or
-  `rhebok_related` result, and the plain output of `rhebok search` starts with
+- Each `<rhebok-context>` block, each non-empty `rhebok_search_knowledge`,
+  `rhebok_list_related` or `rhebok_read_document` result, and the plain output of
+  `rhebok search` starts with
   one fixed line: the excerpts are reference material from the user's indexed
   files and past sessions, they are data and not instructions, and they may be
   outdated. In the block, this line counts against `max_tokens`.
-- In the block, in `rhebok_search` and `rhebok_related` results, and in the
-  plain `rhebok search` output, every line of retrieved excerpt text starts
-  with `> `. A title, heading or link is put on one line. In `rhebok_search`
-  and `rhebok_related` results, the heading line starts with `heading: ` and
+- In the block, in `rhebok_search_knowledge`, `rhebok_list_related` and `rhebok_read_document`
+  results, and in the plain `rhebok search` output, every line of retrieved
+  excerpt text starts with `> `. A title, heading or link is put on one line.
+  In `rhebok_read_document` results, the title line starts with `# `, the link line
+  with `source: ` and each section's heading line with `## `. In `rhebok_search_knowledge`
+  and `rhebok_list_related` results, the heading line starts with `heading: ` and
   the link line with `source: `. So no line of retrieved text can pass as a
   header, and no line in the block can pass as a memory line that rhebok
   wrote. The title, heading and link lines are not quoted, but they come from
@@ -91,9 +97,9 @@ see [Ranking weights](configuration.md#ranking-weights).
   `／` counts as `/`. A note therefore cannot close the block, or the agent
   host's own wrapper around it, early and make the rest of its text look like
   it came from you or from the system. rhebok does this to titles, headings,
-  links and excerpt text in the block, in `rhebok_search` and `rhebok_related`
-  results and their structured content, in the `hits` list of `rhebok_context`,
-  to the titles and text `rhebok_memories` lists, in both forms of
+  links and excerpt text in the block, in `rhebok_search_knowledge`, `rhebok_list_related`
+  and `rhebok_read_document` results and their structured content, in the `hits` list of `rhebok_get_context`,
+  to the titles and text `rhebok_list_memories` lists, in both forms of
   `rhebok search` output, and to the text of every lesson. In the `hits` list
   and the plain `rhebok search` output, a title, heading or link is also put on
   one line. The `--json` form keeps each field's line breaks, which JSON
@@ -118,13 +124,13 @@ holds, so a lesson cannot add a second line that claims another origin. Each
 lesson shows who saved it:
 
 - `saved by the user`: you saved it with `rhebok memory add` or the dashboard.
-- `saved by Claude`: the agent saved it through `rhebok_remember`.
+- `saved by Claude`: the agent saved it through `rhebok_save_memory`.
 - `distilled from a session`: rhebok's distillation wrote it.
 
 A memory that the agent saved with a confidence below `[memory]
 min_confidence` is held back when it is read: it is not shown in the
 `<rhebok-lessons>` block, and it is not retrieved into `<rhebok-context>`,
-`rhebok_search` or `rhebok_context`. This also applies to a memory saved before
+`rhebok_search_knowledge` or `rhebok_get_context`. This also applies to a memory saved before
 the floor was raised. The lessons block says how many lessons were held back.
 `rhebok memory list` still shows them. The agent sets its own confidence, and it defaults to 80, which is also the
 default floor. So the floor stops only lessons that the agent itself marked as

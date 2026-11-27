@@ -36,7 +36,7 @@ was set; rebuild without it.
 
 **Past sessions never appear in your prompts.** That is the default. The
 prompt hook weighs transcripts at 0.45, below its gate, so it injects your
-notes and memories instead. `rhebok_search` and `rhebok search` do find
+notes and memories instead. `rhebok_search_knowledge` and `rhebok search` do find
 sessions. See [Ranking weights](configuration.md#ranking-weights) to change
 it.
 

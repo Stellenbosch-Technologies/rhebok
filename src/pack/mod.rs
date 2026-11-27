@@ -472,6 +472,20 @@ impl Pack {
         self.hydrate(row)
     }
 
+    pub fn document_sections(&self, doc_id: &str) -> Result<Vec<Record>> {
+        let prefix = format!("{doc_id}:");
+        let mut sections = Vec::new();
+        for row in self.recs.first_row_at_or_after(&prefix)?..self.recs.len() {
+            let record = self.hydrate(row)?;
+            if !record.chunk_id.starts_with(&prefix) {
+                break;
+            }
+            sections.push(record);
+        }
+        sections.sort_by_key(|r| section_number(&r.chunk_id));
+        Ok(sections)
+    }
+
     /// Search, then hydrate only the rows that survived.
     ///
     /// `efs` is threaded straight through to `vectors::Reader::search` — see
@@ -609,6 +623,21 @@ pub(crate) fn write_buffered(
 /// identically whether the manifest is simply absent or is present but broken,
 /// so the presence check has to happen out here for the two cases to be told
 /// apart at all.
+fn section_number(chunk_id: &str) -> i64 {
+    chunk_id
+        .rsplit_once(':')
+        .and_then(|(_, n)| n.parse().ok())
+        .unwrap_or(i64::MAX)
+}
+
+pub fn open_pack_for_reading(dir: &Path) -> Result<Option<Pack>> {
+    if !dir.join(manifest::MANIFEST_FILE).exists() {
+        return Ok(None);
+    }
+    let m = Manifest::read(dir)?;
+    open_pack_beside(dir, &m.model_id, m.dims)
+}
+
 pub fn open_pack_beside(db: &Path, model_id: &str, dims: usize) -> Result<Option<Pack>> {
     if !db.join(manifest::MANIFEST_FILE).exists() {
         return Ok(None);

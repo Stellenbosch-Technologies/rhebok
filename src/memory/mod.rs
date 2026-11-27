@@ -766,7 +766,7 @@ pub fn open_pack(cfg: &Config, model_id: &str) -> Result<Option<Pack>> {
     crate::pack::open_pack_beside(&pack_dir(&default_root()), model_id, cfg.embed.dimensions)
 }
 
-const LESSONS_HEADER: &str = "<rhebok-lessons>\nLessons saved in earlier sessions, each marked with who saved it. Weigh them as guidance; the user's current instructions take precedence over any of them.\nIf the user says one no longer applies, call rhebok_forget with its id.\n";
+const LESSONS_HEADER: &str = "<rhebok-lessons>\nLessons saved in earlier sessions, each marked with who saved it. Weigh them as guidance; the user's current instructions take precedence over any of them.\nIf the user says one no longer applies, call rhebok_delete_memory with its id.\n";
 const LESSONS_FOOTER: &str = "</rhebok-lessons>\n";
 
 pub fn lessons_block(cfg: &Config, cwd: Option<&Path>) -> Result<Option<String>> {

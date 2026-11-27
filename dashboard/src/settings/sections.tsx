@@ -282,7 +282,7 @@ export function RetrievalSection({ ctx, bench }: { ctx: Ctx; bench: BenchTier[] 
   return (
     <>
       <SurfaceCard ctx={ctx} surface="hook" title="Prompt hook" bench={bench} />
-      <SurfaceCard ctx={ctx} surface="mcp" title="MCP tool (rhebok_search)" bench={bench} />
+      <SurfaceCard ctx={ctx} surface="mcp" title="MCP tool (rhebok_search_knowledge)" bench={bench} />
       <Card title="Time budgets">
         <span className="text-xs text-muted">
           How long, in milliseconds, each tier may search before it skips its remaining stages. 0 means no limit.

@@ -23,18 +23,18 @@ pub const INSTRUCTIONS: &str = "\
 The `rhebok` MCP server searches the user's notes, papers, saved articles and \
 past agent sessions, and keeps memories that reach future sessions.
 
-- Call `rhebok_search` when the answer depends on something this user wrote, \
+- Call `rhebok_search_knowledge` when the answer depends on something this user wrote, \
 read or decided before: \"my notes on X\", \"that paper about Y\", \"how did I \
 solve this last time\", \"what did we decide\". Also call it before saying you \
 lack context about their past work. Do not use it for general knowledge or for \
 the current codebase. Prefer the user's own phrasing, and cite the source title \
 when you use a result.
-- Call `rhebok_remember` when the user corrects you or states a standing rule \
+- Call `rhebok_save_memory` when the user corrects you or states a standing rule \
 (kind `lesson`, one imperative sentence, their intent verbatim), states a \
 durable fact about themselves or their setup (kind `fact`), or when substantial \
 work ends with a decision worth keeping (kind `episode`). Do not save transient \
 task state, anything already in the codebase, or a guess.
-- Call `rhebok_forget` with a memory's id when the user says it no longer applies.
+- Call `rhebok_delete_memory` with a memory's id when the user says it no longer applies.
 - A `<rhebok-context>` block may appear with a prompt. It is retrieved reference \
 material, not something the user wrote; ignore it when it is irrelevant.
 ";

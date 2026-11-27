@@ -152,4 +152,18 @@ impl Reader {
         }
         Ok(None)
     }
+
+    pub fn first_row_at_or_after(&self, chunk_id: &str) -> Result<usize> {
+        let mut lo = 0usize;
+        let mut hi = self.len();
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if self.get(mid)?.chunk_id.as_str() < chunk_id {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        Ok(lo)
+    }
 }

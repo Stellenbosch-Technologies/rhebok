@@ -332,7 +332,7 @@ fn prune_guard_counts_only_reachable_documents() {
 
 #[test]
 fn the_mcp_index_path_goes_through_the_locked_swap() {
-    // `index_now` — what the MCP `rhebok_index` tool calls — used to open the
+    // `index_now` — what the MCP `rhebok_update_index` tool calls — used to open the
     // live store directly, skipping BOTH protections the CLI path has: the
     // writer lock and the shadow swap. An MCP index racing the indexer that
     // SessionStart spawns could interleave filesystem mutations, and for the

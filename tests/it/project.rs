@@ -150,7 +150,7 @@ fn a_valid_project_passes_config_check() {
 fn chat_instructions_name_the_tool_and_the_root_that_selects_the_project() {
     let cfg = config("[projects.api]\nroots = [\"/work/api\"]\n");
     let text = rhebok::project::chat_instructions(&cfg, "api").unwrap();
-    assert!(text.contains("`rhebok_context`"), "{text}");
+    assert!(text.contains("`rhebok_get_context`"), "{text}");
     assert!(text.contains("`cwd` set to \"/work/api\""), "{text}");
     assert!(text.contains("project `api`"), "{text}");
     assert!(rhebok::project::chat_instructions(&cfg, "nope").is_err());

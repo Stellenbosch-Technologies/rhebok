@@ -180,7 +180,7 @@ pub fn related_for(cfg: &config::Config, uri: &str) -> Result<Vec<store::Hit>> {
     store.expand(&[model::Chunk::id(&doc_id, 0)], 2, 10)
 }
 
-/// Re-index everything. This is what the MCP `rhebok_index` tool calls.
+/// Re-index everything. This is what the MCP `rhebok_update_index` tool calls.
 ///
 /// It delegates to `index::reindex_swap` rather than writing to the live
 /// database directly. Writing directly skipped BOTH protections the CLI path

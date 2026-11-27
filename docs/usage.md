@@ -24,6 +24,24 @@ long re-index runs.
 Or, from inside Claude Code, use the slash commands below. Once indexed, the
 prompt hook runs automatically on every turn.
 
+The agent reaches the same index through MCP tools:
+
+- `rhebok_get_context` gets the excerpts that belong with your message.
+- `rhebok_search_knowledge` runs a query that the agent writes.
+- `rhebok_read_document` reads one document's sections in order, 20 at a
+  time, with `next` for the following page.
+- `rhebok_list_related` follows a document's links.
+- `rhebok_get_status` reports what `rhebok status` does: counts, the model,
+  the last index time, whether a run is in progress, the sources, skipped
+  files and config problems.
+- `rhebok_update_index` runs `rhebok index` (`mode` `changes`, the default),
+  `rhebok index --backfill` with a two-minute budget for starting new batches
+  (`backfill`), or
+  `rhebok index --compact` (`compact`).
+
+In 0.2.3 and earlier the tools had shorter names, such as `rhebok_search`. The old
+names still answer, but only the new ones are listed.
+
 ## Memory
 
 Alongside retrieval over your files, `rhebok` keeps durable memories: things
@@ -53,9 +71,9 @@ re-embeds every memory with the currently configured model and republishes;
 `export`/`import` move memories as JSON lines, for backup or for carrying them
 to another machine.
 
-From inside Claude Code, three MCP tools drive the same store: `rhebok_remember`
-saves a lesson, fact or episode and returns its id, `rhebok_memories` lists
-what is saved (by kind or scope, newest first, with ids), and `rhebok_forget`
+From inside Claude Code, three MCP tools drive the same store: `rhebok_save_memory`
+saves a lesson, fact or episode and returns its id, `rhebok_list_memories` lists
+what is saved (by kind or scope, newest first, with ids), and `rhebok_delete_memory`
 deletes one by id when you say it no longer applies. `/rhebok-remember <rule>` and
 `/rhebok-memories [kind]` are the matching slash commands.
 
@@ -66,7 +84,7 @@ other session-start output can precede it on stdout:
 ```
 <rhebok-lessons>
 Lessons saved in earlier sessions, each marked with who saved it. Weigh them as guidance; the user's current instructions take precedence over any of them.
-If the user says one no longer applies, call rhebok_forget with its id.
+If the user says one no longer applies, call rhebok_delete_memory with its id.
 - [a1b2c3d4e5f6 · 2026-09-01 · global · saved by the user] Never comment code unless asked
 </rhebok-lessons>
 ```
