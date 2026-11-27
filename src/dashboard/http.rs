@@ -31,12 +31,21 @@ const MAX_BODY: usize = 64 * 1024;
 const DRAIN_LIMIT: usize = MAX_BODY * 2;
 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+fn read_retrying(stream: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        match stream.read(buf) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            done => return done,
+        }
+    }
+}
+
 pub(super) fn handle(mut stream: TcpStream, source: &ConfigSource, agents: Option<&AgentEnv>) {
     let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
     let mut buf = [0u8; 8192];
     let mut req = Vec::new();
     loop {
-        match stream.read(&mut buf) {
+        match read_retrying(&mut stream, &mut buf) {
             Ok(0) => break,
             Ok(n) => {
                 req.extend_from_slice(&buf[..n]);
@@ -85,7 +94,7 @@ pub(super) fn handle(mut stream: TcpStream, source: &ConfigSource, agents: Optio
         if content_length > MAX_BODY {
             let mut seen = req.len() - header_end;
             while seen < content_length && seen < DRAIN_LIMIT {
-                match stream.read(&mut buf) {
+                match read_retrying(&mut stream, &mut buf) {
                     Ok(0) => break,
                     Ok(n) => seen += n,
                     Err(_) => break,
@@ -99,7 +108,7 @@ pub(super) fn handle(mut stream: TcpStream, source: &ConfigSource, agents: Optio
         }
         let mut body = req[header_end..].to_vec();
         while body.len() < content_length {
-            match stream.read(&mut buf) {
+            match read_retrying(&mut stream, &mut buf) {
                 Ok(0) => break,
                 Ok(n) => body.extend_from_slice(&buf[..n]),
                 Err(_) => return,
@@ -518,6 +527,50 @@ pub(in crate::dashboard) fn error_response(
 mod tests {
     use super::core::AgentRefusal;
     use super::*;
+
+    struct InterruptedBeforeEveryChunk {
+        chunks: std::collections::VecDeque<&'static [u8]>,
+        interrupt: bool,
+    }
+
+    impl Read for InterruptedBeforeEveryChunk {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.interrupt = !self.interrupt;
+            if self.interrupt {
+                return Err(std::io::ErrorKind::Interrupted.into());
+            }
+            let Some(chunk) = self.chunks.pop_front() else {
+                return Ok(0);
+            };
+            buf[..chunk.len()].copy_from_slice(chunk);
+            Ok(chunk.len())
+        }
+    }
+
+    #[test]
+    fn a_read_interrupted_by_a_signal_is_retried_and_the_request_arrives_whole() {
+        let mut stream = InterruptedBeforeEveryChunk {
+            chunks: [
+                &b"GET /api/progress HTTP/1.1\r\n"[..],
+                b"Host: 127.0.0.1\r\n\r\n",
+            ]
+            .into(),
+            interrupt: false,
+        };
+        let mut buf = [0u8; 64];
+        let mut request = Vec::new();
+        loop {
+            let n = read_retrying(&mut stream, &mut buf).expect("an interrupted read is retried");
+            if n == 0 {
+                break;
+            }
+            request.extend_from_slice(&buf[..n]);
+        }
+        assert_eq!(
+            request,
+            b"GET /api/progress HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+        );
+    }
 
     #[test]
     fn serialisation_goes_through_a_value_so_keys_stay_sorted() {
