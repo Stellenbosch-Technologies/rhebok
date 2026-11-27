@@ -307,9 +307,22 @@ every tier-2-4 search built a hash table of the whole corpus's text to return
 at most twelve rows: a tier-3 search peaked at 310 MB on a 30k-chunk sandbox
 and 735 MB on a 100k-chunk one, and the native app measured 1.4-1.5 GB on the
 live index. The walks now return only `c.id`, `c.doc_id` and `c.ord`, and
-`Store::hydrate` fetches the chosen ids one primary-key lookup at a time: 152
-and 231 MB on the same two sandboxes, with byte-identical results over 1,780
-expanded hits. `EXPLAIN <query>` through `Connection::prepare` shows the plan.
+`Store::hydrate` fetches the chosen ids by primary key: 152 and 231 MB on the
+same two sandboxes, with byte-identical results over 1,780 expanded hits.
+
+The walks themselves read the whole `Chunk` table too, because they started
+from `s.id IN $seeds`. They now anchor each seed with `s.id = $idN` and put one
+branch per seed into a single `UNION ALL` statement, and `Store::hydrate` does
+the same for its ids. `UNWIND $seeds AS sid MATCH (s:Chunk {id: sid})` does
+NOT use the key: on the live 20,689-chunk index it made the adjacent walk take
+2.4 s and touch 119,830 rows, against about 30 ms before. The link walk is
+written as fixed-length `-[r1:LINKS_TO]->` chains, one per hop count, not
+`LINKS_TO*1..n`: per seed, lbug's recursive operator cost about 28 ms at one
+hop and 99 ms at two, against 8 and 18 ms for the chains, on a loaded machine.
+The selection rules (order, seed exclusion, per-list limit, interleaving) live
+in `src/expansion.rs`. Old and new `expand` returned identical hits for 912
+seed sets on the live index, at hop and limit settings (1, 5), (1, 8) and
+(2, 12). `EXPLAIN <query>` through `Connection::prepare` shows the plan.
 `graph_expansion_does_not_read_the_text_of_chunks_it_does_not_return` pins
 both halves in a child process of its own, because peak RSS is per process.
 What remains is a fixed cost of about 35 MB per expansion, the same with

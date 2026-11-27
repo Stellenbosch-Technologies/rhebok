@@ -13,6 +13,7 @@ pub mod doctor;
 pub mod embed;
 pub mod enrich;
 pub mod env_file;
+pub mod expansion;
 pub mod golden;
 pub mod hook;
 pub mod ignore_list;

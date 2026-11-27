@@ -1,5 +1,8 @@
 use super::{as_f32_vec, as_f64, as_i64, as_string, string_pairs, Store};
 use anyhow::Result;
+use std::collections::{HashMap, HashSet};
+
+use crate::expansion::{adjacent_order, interleave, linked_order, FOLLOWED_LINK_KINDS};
 use lbug::{LogicalType, Value};
 
 #[derive(Debug, Clone)]
@@ -723,32 +726,131 @@ impl Store {
     }
 
     pub fn hydrate(&self, chunk_ids: &[String]) -> Result<Vec<Hit>> {
-        if chunk_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let cypher = format!(
-            "MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk) WHERE c.id = $id \
-             RETURN {HIT_RETURN}, 0.0"
-        );
-        let mut hits = Vec::with_capacity(chunk_ids.len());
-        for id in chunk_ids {
-            hits.extend(self.rows_to_hits(
-                &cypher,
-                vec![("id", Value::String(id.clone()))],
-                |raw| raw,
-                |_| 0.0,
-            )?);
-        }
-        Ok(hits)
+        let rows = self.union_by_id(chunk_ids, |id| {
+            format!(
+                "MATCH (c:Chunk) WHERE c.id = ${id} \
+                 MATCH (d:Document)-[:HAS_CHUNK]->(c) \
+                 RETURN {HIT_RETURN}, 0.0"
+            )
+        })?;
+        let mut found: HashMap<String, Hit> = rows
+            .iter()
+            .filter_map(|row| hit_from_row(row))
+            .map(|hit| (hit.chunk_id.clone(), hit))
+            .collect();
+        Ok(chunk_ids.iter().filter_map(|id| found.remove(id)).collect())
     }
 
-    fn chunk_ids_of(&self, cypher: &str, seeds: &[String]) -> Vec<String> {
-        match self.exec(cypher, vec![("seeds", string_list(seeds))]) {
-            Ok(rows) => rows
-                .filter_map(|row| row.first().and_then(as_string))
-                .collect(),
-            Err(_) => Vec::new(),
+    fn union_by_id(
+        &self,
+        ids: &[String],
+        branch: impl Fn(&str) -> String,
+    ) -> Result<Vec<Vec<Value>>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
         }
+        let names: Vec<String> = (0..ids.len()).map(|i| format!("id{i}")).collect();
+        let cypher = names
+            .iter()
+            .map(|name| branch(name))
+            .collect::<Vec<_>>()
+            .join(" UNION ALL ");
+        let params = names
+            .iter()
+            .map(String::as_str)
+            .zip(ids.iter().map(|id| Value::String(id.clone())))
+            .collect();
+        Ok(self.exec(&cypher, params)?.collect())
+    }
+
+    fn adjacent_to(&self, seeds: &[String], depth: u8) -> Result<Vec<(String, String, i64)>> {
+        let rows = self.union_by_id(seeds, |id| {
+            format!(
+                "MATCH (s:Chunk) WHERE s.id = ${id} \
+                 MATCH (s)-[:NEXT_CHUNK*1..{depth}]-(c:Chunk)<-[:HAS_CHUNK]-(:Document) \
+                 RETURN c.id AS id, c.doc_id AS doc, c.ord AS ord"
+            )
+        })?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                Some((
+                    as_string(row.first()?)?,
+                    as_string(row.get(1)?)?,
+                    as_i64(row.get(2)?)?,
+                ))
+            })
+            .collect())
+    }
+
+    // First chunk of each linked document — the note you would have clicked to.
+    //
+    // An ALLOWLIST, and the two kinds in it are not symmetric:
+    //
+    //   wikilink       a link a human wrote. Always follow.
+    //   superseded-by  sits on the RETIRED record and points at its
+    //                  replacement. Follow it: landing on a dead decision
+    //                  and being shown the live one is the whole point.
+    //   supersedes     sits on the LIVE record and points back at what it
+    //                  replaced. Do NOT follow. `expand` has a
+    //                  `LIMIT max_neighbors`, and this pointer spends one
+    //                  of those slots on a document the vault retired.
+    //
+    // The first cut of this filter admitted only `wikilink`, which read as
+    // symmetric and is not: it also dropped `superseded-by`, removing a
+    // traversal that existed before any of this work and is useful. An ADR
+    // may declare `superseded-by:` in frontmatter without also writing the
+    // prose link — the loader treats frontmatter relations as first-class
+    // and reports unresolvable ones on stderr — and for those, dropping the
+    // edge makes the replacement UNREACHABLE from the record it replaces.
+    // `LifecycleSource` cannot compensate: it demotes what is in the pool,
+    // and an unreachable document is absent rather than demoted.
+    //
+    // Allowlist rather than `<> 'supersedes'` so a future kind is excluded
+    // until someone decides it is worth a neighbour slot — the same posture
+    // `inbound_link_counts` takes.
+    //
+    // The comprehension form is what expresses a SET; the inline property
+    // map (`{{kind: '...'}}`) holds one value only. Both were run against
+    // real lbug 0.19.1 in a spike rather than taken from
+    // documentation, which the spec had
+    // recorded as unverified.
+    fn linked_from(&self, seeds: &[String], depth: u8) -> Result<Vec<String>> {
+        let kinds = FOLLOWED_LINK_KINDS
+            .iter()
+            .map(|k| format!("'{k}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let rows = self.union_by_id(seeds, |id| {
+            (1..=depth)
+                .map(|length| {
+                    let path: String = (1..=length)
+                        .map(|hop| {
+                            let to = if hop == length {
+                                "d:Document"
+                            } else {
+                                ":Document"
+                            };
+                            format!("-[r{hop}:LINKS_TO]->({to})")
+                        })
+                        .collect();
+                    let kinds_match = (1..=length)
+                        .map(|hop| format!("r{hop}.kind IN [{kinds}]"))
+                        .collect::<Vec<_>>()
+                        .join(" AND ");
+                    format!(
+                        "MATCH (s:Chunk) WHERE s.id = ${id} \
+                         MATCH (s)<-[:HAS_CHUNK]-(a:Document){path} WHERE {kinds_match} \
+                         RETURN d.id AS id"
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" UNION ALL ")
+        })?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| row.first().and_then(as_string))
+            .collect())
     }
 
     /// Graph expansion from seed chunks. Neighbours arrive with score 0.0 and are
@@ -760,137 +862,37 @@ impl Store {
         // `hops` and `max_neighbors` come from Profile, not user input; Cypher takes
         // no parameter for a path-length bound or a LIMIT.
         let depth = hops.max(1);
-
-        // Adjacent chunks, either direction — a fact split across a boundary can
-        // live on either side of the seed. ORDER BY c.doc_id, c.ord keeps the result
-        // reproducible and numerically ordered; chunk_id is "{doc_id}:{ord}", so
-        // ordering by the whole id string would sort the ordinal lexicographically
-        // ("…:10" before "…:8"). Expanded hits all score 0.0, so without an explicit
-        // order fusion's tie-break would see arbitrary storage order. `c.doc_id`
-        // and `c.ord` must also be projected in RETURN DISTINCT — otherwise `c` is
-        // out of scope for ORDER BY and lbug 0.19.1 raises "Binder exception:
-        // Variable c is not in scope".
-        let adjacent = format!(
-            "MATCH (s:Chunk)-[:NEXT_CHUNK*1..{depth}]-(c:Chunk) \
-             WHERE s.id IN $seeds AND NOT c.id IN $seeds \
-             MATCH (d:Document)-[:HAS_CHUNK]->(c) \
-             RETURN DISTINCT c.id, c.doc_id, c.ord ORDER BY c.doc_id, c.ord LIMIT {max_neighbors}"
-        );
-
-        // First chunk of each linked document — the note you would have clicked to.
-        //
-        // An ALLOWLIST, and the two kinds in it are not symmetric:
-        //
-        //   wikilink       a link a human wrote. Always follow.
-        //   superseded-by  sits on the RETIRED record and points at its
-        //                  replacement. Follow it: landing on a dead decision
-        //                  and being shown the live one is the whole point.
-        //   supersedes     sits on the LIVE record and points back at what it
-        //                  replaced. Do NOT follow. `expand` has a
-        //                  `LIMIT max_neighbors`, and this pointer spends one
-        //                  of those slots on a document the vault retired.
-        //
-        // The first cut of this filter admitted only `wikilink`, which read as
-        // symmetric and is not: it also dropped `superseded-by`, removing a
-        // traversal that existed before any of this work and is useful. An ADR
-        // may declare `superseded-by:` in frontmatter without also writing the
-        // prose link — the loader treats frontmatter relations as first-class
-        // and reports unresolvable ones on stderr — and for those, dropping the
-        // edge makes the replacement UNREACHABLE from the record it replaces.
-        // `LifecycleSource` cannot compensate: it demotes what is in the pool,
-        // and an unreachable document is absent rather than demoted.
-        //
-        // Allowlist rather than `<> 'supersedes'` so a future kind is excluded
-        // until someone decides it is worth a neighbour slot — the same posture
-        // `inbound_link_counts` takes.
-        //
-        // The comprehension form is what expresses a SET; the inline property
-        // map (`{{kind: '...'}}`) holds one value only. Both were run against
-        // real lbug 0.19.1 in a spike rather than taken from
-        // documentation, which the spec had
-        // recorded as unverified.
-        let linked = format!(
-            "MATCH (s:Chunk)<-[:HAS_CHUNK]-(:Document)-[:LINKS_TO*1..{depth} \
-              (r, _ | WHERE r.kind IN ['wikilink', 'superseded-by'])]->(d:Document) \
-             WHERE s.id IN $seeds \
-             MATCH (d)-[:HAS_CHUNK]->(c:Chunk) WHERE c.ord = 0 AND NOT c.id IN $seeds \
-             RETURN DISTINCT c.id, c.doc_id, c.ord ORDER BY c.doc_id, c.ord LIMIT {max_neighbors}"
-        );
-
-        let adjacent_ids = self.chunk_ids_of(&adjacent, seeds);
-        let linked_ids = self.chunk_ids_of(&linked, seeds);
+        let adjacent = adjacent_order(self.adjacent_to(seeds, depth)?, seeds);
+        let linked = linked_order(self.linked_from(seeds, depth)?, seeds);
 
         // Interleave rather than concatenate-then-truncate. Each query has its own
         // LIMIT, so appending meant adjacency could fill the budget by itself and
         // silently drop every LINKS_TO neighbour — and a linked note ("the one you
         // would have clicked to") is usually the more interesting result, while an
         // adjacent chunk is a continuation of something already matched.
-        let mut seen = std::collections::HashSet::new();
-        let mut chosen: Vec<String> = Vec::with_capacity(max_neighbors);
-        let mut a = adjacent_ids.into_iter();
-        let mut l = linked_ids.into_iter();
+        let mut missing: HashSet<String> = HashSet::new();
+        let mut fetched: HashMap<String, Hit> = HashMap::new();
         loop {
-            let (na, nl) = (a.next(), l.next());
-            if na.is_none() && nl.is_none() {
-                break;
+            let present = |ids: &[String]| -> Vec<String> {
+                ids.iter()
+                    .filter(|id| !missing.contains(*id))
+                    .cloned()
+                    .collect()
+            };
+            let chosen = interleave(&present(&adjacent), &present(&linked), max_neighbors);
+            let wanted: Vec<String> = chosen
+                .iter()
+                .filter(|id| !fetched.contains_key(*id))
+                .cloned()
+                .collect();
+            if wanted.is_empty() {
+                return Ok(chosen.iter().filter_map(|id| fetched.remove(id)).collect());
             }
-            for id in [na, nl].into_iter().flatten() {
-                if chosen.len() < max_neighbors && seen.insert(id.clone()) {
-                    chosen.push(id);
-                }
+            for hit in self.hydrate(&wanted)? {
+                fetched.insert(hit.chunk_id.clone(), hit);
             }
-            if chosen.len() >= max_neighbors {
-                break;
-            }
+            missing.extend(wanted.into_iter().filter(|id| !fetched.contains_key(id)));
         }
-        self.hydrate(&chosen)
-    }
-
-    /// `score` maps the raw row value to the fused-ordering score; `relevance`
-    /// maps it to a [0,1] similarity for the injection gate. They differ because
-    /// BM25 has no bounded similarity to offer.
-    pub(crate) fn rows_to_hits(
-        &self,
-        cypher: &str,
-        params: Vec<(&str, Value)>,
-        score: impl Fn(f32) -> f32,
-        relevance: impl Fn(f32) -> f32,
-    ) -> Result<Vec<Hit>> {
-        let r = match self.exec(cypher, params) {
-            Ok(r) => r,
-            // A missing index means "nothing indexed yet", which is empty, not broken.
-            Err(_) => return Ok(Vec::new()),
-        };
-        Ok(r.filter_map(|row| {
-            let page = row.get(6).and_then(as_i64).unwrap_or(-1);
-            // HIT_RETURN projects 8 columns (0..=7); the caller's score is the
-            // 9th. Adding a column to HIT_RETURN must move this index too — the
-            // score silently reads 0.0 otherwise, which ranks every hit equally.
-            let raw = row.get(8).and_then(as_f64).unwrap_or(0.0) as f32;
-            Some(Hit {
-                chunk_id: as_string(row.first()?)?,
-                doc_id: as_string(row.get(1)?)?,
-                text: as_string(row.get(2)?)?,
-                heading_path: row.get(3).and_then(as_string).unwrap_or_default(),
-                uri: as_string(row.get(4)?)?,
-                title: row.get(5).and_then(as_string).unwrap_or_default(),
-                page_no: if page < 0 { None } else { Some(page) },
-                score: score(raw),
-                relevance: relevance(raw),
-                source_type: row.get(7).and_then(as_string).unwrap_or_default(),
-                // The store path weights by its own `inbound_link_counts`
-                // map, which covers graph-expanded hits too. See `Hit.inbound`.
-                inbound: 0,
-                // The pack is what carries per-row lifecycle today — see
-                // `Hit.lifecycle`. A store-path hit has no row to join
-                // against, so it stays `Current`, the no-op value.
-                lifecycle: Default::default(),
-                last_used: None,
-                memory: None,
-                mount: None,
-            })
-        })
-        .collect())
     }
 
     /// Every chunk, joined to its document, ordered so two builds of the same
@@ -1281,12 +1283,32 @@ impl Store {
     }
 }
 
-pub(crate) fn string_list(v: &[String]) -> Value {
-    // `Value::List` carries an explicit `LogicalType` discriminant for its
-    // element type, verified against real lbug 0.19.1 (`Value::List(LogicalType, Vec<Value>)`),
-    // the same pattern `float_array`'s `Value::Array` already relies on.
-    Value::List(
-        LogicalType::String,
-        v.iter().map(|s| Value::String(s.clone())).collect(),
-    )
+fn hit_from_row(row: &[Value]) -> Option<Hit> {
+    let page = row.get(6).and_then(as_i64).unwrap_or(-1);
+    // HIT_RETURN projects 8 columns (0..=7); the caller's score is the
+    // 9th. Adding a column to HIT_RETURN must move this index too — the
+    // score silently reads 0.0 otherwise, which ranks every hit equally.
+    let raw = row.get(8).and_then(as_f64).unwrap_or(0.0) as f32;
+    Some(Hit {
+        chunk_id: as_string(row.first()?)?,
+        doc_id: as_string(row.get(1)?)?,
+        text: as_string(row.get(2)?)?,
+        heading_path: row.get(3).and_then(as_string).unwrap_or_default(),
+        uri: as_string(row.get(4)?)?,
+        title: row.get(5).and_then(as_string).unwrap_or_default(),
+        page_no: if page < 0 { None } else { Some(page) },
+        score: raw,
+        relevance: 0.0,
+        source_type: row.get(7).and_then(as_string).unwrap_or_default(),
+        // The store path weights by its own `inbound_link_counts`
+        // map, which covers graph-expanded hits too. See `Hit.inbound`.
+        inbound: 0,
+        // The pack is what carries per-row lifecycle today — see
+        // `Hit.lifecycle`. A store-path hit has no row to join
+        // against, so it stays `Current`, the no-op value.
+        lifecycle: Default::default(),
+        last_used: None,
+        memory: None,
+        mount: None,
+    })
 }
