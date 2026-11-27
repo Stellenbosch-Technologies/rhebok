@@ -54,6 +54,7 @@ mod memory;
 mod memory_distill;
 mod migrate;
 mod pack;
+mod pack_graph;
 mod plugin_launcher;
 mod plugin_manifest;
 mod prehook;

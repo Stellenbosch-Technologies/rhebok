@@ -1439,20 +1439,28 @@ pub fn run(
     // enumerated the guard is SKIPPED and says so on stderr; the bench then
     // runs unguarded, which is what it did before the guard existed.
     //
-    // `retrieve_for_profile` above is forced to tier 4's profile, whose
-    // `graph` makes `needs_store` true, so `store()` is `Some` by
-    // construction today. The `None` arm is not dead defensiveness — it is
-    // what keeps this correct if that forcing is ever relaxed.
+    // Tier 4 reads its graph from `pack.graph` when the pack carries one, so
+    // the retriever may have no store at all; the corpus is then listed from
+    // a store opened here, only for this guard and the provenance counts.
     //
     // The (doc_id, uri) PAIRS are kept, not only the uris the guard needs. The
     // stage-attribution pass below reaches its hits through `Explain`, whose
     // `HitSummary` carries a `doc_id` and no uri, so telling an answer from a
     // negative there needs the reverse of this map. Throwing the ids away and
     // re-opening the store for them would enumerate the same table twice.
-    let indexed_docs: Option<Vec<(String, String)>> = match retriever.store() {
+    let opened_for_corpus = match retriever.store() {
+        Some(_) => None,
+        None => crate::store::Store::open_existing(
+            &crate::config::Config::db_path(),
+            cfg.embed.dimensions,
+        )
+        .ok(),
+    };
+    let corpus = retriever.store().or(opened_for_corpus.as_ref());
+    let indexed_docs: Option<Vec<(String, String)>> = match corpus {
         None => {
             eprintln!(
-                "rhebok: no store on this retriever, so the golden set's uris cannot be\n\
+                "rhebok: no store could be opened, so the golden set's uris cannot be\n\
                  checked against the corpus. A typo'd uri will score 0 and look like a\n\
                  retrieval miss."
             );
@@ -1495,7 +1503,7 @@ pub fn run(
     // `status_snapshot` folds it: a display path may render an uncounted store
     // as "0 documents", but a provenance record may not, because two runs that
     // both failed to count would then compare equal and be waved through.
-    let (documents, chunks) = match retriever.store() {
+    let (documents, chunks) = match corpus {
         Some(s) => (s.count_documents().ok(), s.count_chunks().ok()),
         None => (None, None),
     };

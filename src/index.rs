@@ -2205,6 +2205,7 @@ fn reindex_swap_inner(
         // the pack so the prompt path can rank by lifecycle without opening
         // the database — see `pack::status`.
         let lifecycles = idx.store().all_lifecycles(&inbound)?;
+        let row_ids = row_chunk_ids(&pack_rows);
         crate::pack::Pack::build_with_usage(
             &shadow,
             &idx.embedder().model_id(),
@@ -2214,6 +2215,7 @@ fn reindex_swap_inner(
             &lifecycles,
             &usage_for_pack(&live),
         )?;
+        crate::pack::graph::write(&shadow, &row_ids, &idx.store().graph_for_pack()?)?;
         write_scopes(&shadow, idx.store(), cfg);
 
         stats
@@ -2476,6 +2478,10 @@ fn rescope_at(cfg: &Config, live: &std::path::Path) -> Result<usize> {
     Ok(defs.len())
 }
 
+fn row_chunk_ids(rows: &[(crate::pack::records::Record, Vec<f32>)]) -> Vec<String> {
+    rows.iter().map(|(r, _)| r.chunk_id.clone()).collect()
+}
+
 fn write_scopes(dir: &std::path::Path, store: &Store, cfg: &Config) {
     let written = store.document_tags().and_then(|tags| {
         crate::pack::scope::write_beside(dir, &tags, &crate::project::scope_definitions(cfg))
@@ -2618,6 +2624,7 @@ fn compact_swap(cfg: &Config, live: &std::path::Path) -> Result<IndexStats> {
         let inbound = dst.inbound_link_counts()?;
         // From `dst`, same reasoning as `inbound` above.
         let lifecycles = dst.all_lifecycles(&inbound)?;
+        let row_ids = row_chunk_ids(&pack_rows);
         crate::pack::Pack::build_with_usage(
             &shadow,
             &model_id,
@@ -2627,6 +2634,7 @@ fn compact_swap(cfg: &Config, live: &std::path::Path) -> Result<IndexStats> {
             &lifecycles,
             &usage_for_pack(live),
         )?;
+        crate::pack::graph::write(&shadow, &row_ids, &dst.graph_for_pack()?)?;
         write_scopes(&shadow, &dst, cfg);
 
         IndexStats {

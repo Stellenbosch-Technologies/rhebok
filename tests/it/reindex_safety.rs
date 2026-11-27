@@ -426,6 +426,33 @@ fn a_successful_index_leaves_a_pack_beside_the_database() {
     );
 }
 
+#[test]
+fn both_publish_paths_carry_the_graph_so_expanding_tiers_skip_the_database() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("db");
+    let cfg = corpus(t.path(), 8);
+    let graph_opens = |db: &Path| {
+        let m = rhebok::pack::manifest::Manifest::read(db).unwrap();
+        rhebok::pack::Pack::open(db, &m.model_id, m.dims)
+            .unwrap()
+            .has_graph()
+    };
+
+    rhebok(&db, &cfg).arg("index").assert().success();
+    assert!(graph_opens(&db), "`rhebok index` must publish pack.graph");
+
+    std::fs::remove_file(db.join(rhebok::pack::graph::GRAPH_FILE)).unwrap();
+    assert!(!graph_opens(&db));
+    rhebok(&db, &cfg)
+        .args(["index", "--compact"])
+        .assert()
+        .success();
+    assert!(
+        graph_opens(&db),
+        "`rhebok index --compact` must publish pack.graph"
+    );
+}
+
 /// `--reindex` must discard and REBUILD, not discard and leave empty.
 ///
 /// Reproduced against the release binary before this fix: index 8 notes

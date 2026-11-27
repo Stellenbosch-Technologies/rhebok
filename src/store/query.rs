@@ -1200,6 +1200,38 @@ impl Store {
         )?))
     }
 
+    pub fn graph_for_pack(&self) -> Result<crate::pack::graph::Source> {
+        let chunks = self
+            .exec(
+                "MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk) RETURN c.id, d.id, c.ord",
+                vec![],
+            )?
+            .map(|row| {
+                let parsed = (
+                    row.first().and_then(as_string),
+                    row.get(1).and_then(as_string),
+                    row.get(2).and_then(as_i64),
+                );
+                match parsed {
+                    (Some(chunk), Some(doc), Some(ord)) => Ok((chunk, doc, ord)),
+                    _ => {
+                        anyhow::bail!("pack graph: a chunk row is missing its id, document or ord")
+                    }
+                }
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let documents = self
+            .exec("MATCH (d:Document) RETURN d.id", vec![])?
+            .filter_map(|row| row.first().and_then(as_string))
+            .collect();
+        Ok(crate::pack::graph::Source {
+            chunks,
+            documents,
+            next_chunk: self.all_next_chunk_edges()?,
+            links: self.all_links_to_edges()?,
+        })
+    }
+
     /// `(from_doc_id, to_doc_id, kind)` for every `LINKS_TO` edge.
     pub fn all_links_to_edges(&self) -> Result<Vec<(String, String, String)>> {
         let r = self.exec(
