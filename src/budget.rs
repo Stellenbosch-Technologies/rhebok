@@ -170,7 +170,7 @@ fn walk_budget(hits: &[Hit], max_tokens: usize, mut emit: impl FnMut(&str)) -> u
         if used + entry.len() > budget_chars {
             let room = budget_chars.saturating_sub(used);
             if room > 200 {
-                emit(&entry.chars().take(room).collect::<String>());
+                emit(&entry[..entry.floor_char_boundary(room)]);
                 admitted += 1;
             }
             break;
@@ -285,6 +285,34 @@ mod tests {
             "\n[Never comment code unless asked](file:///n/pool.md)\n\
              > Never comment code unless asked.\n",
             "a non-memory hit renders no memory line"
+        );
+    }
+
+    #[test]
+    fn a_cjk_hit_is_cut_by_bytes_not_characters() {
+        let mut h = base_hit("file:///n/cjk.md");
+        h.text = "あ".repeat(3_000);
+        h.title = "CJK".into();
+        let (body, admitted) = fit_to_budget(&[h], 300);
+        assert_eq!(admitted, 1);
+        assert!(
+            body.len() + framing_chars() <= 1_200,
+            "cut body plus framing must fit the 300-token byte budget, got {} bytes",
+            body.len() + framing_chars()
+        );
+    }
+
+    #[test]
+    fn an_ascii_hit_cut_keeps_the_same_body_as_before() {
+        let mut h = base_hit("file:///n/ascii.md");
+        h.text = "a".repeat(3_000);
+        h.title = "ASCII".into();
+        let (body, admitted) = fit_to_budget(&[h], 300);
+        assert_eq!(admitted, 1);
+        assert!(
+            body.len() + framing_chars() <= 1_200,
+            "cut body plus framing must fit the 300-token byte budget, got {} bytes",
+            body.len() + framing_chars()
         );
     }
 }
